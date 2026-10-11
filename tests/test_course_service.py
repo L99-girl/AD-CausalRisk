@@ -8,7 +8,7 @@ from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 
 from python_service.server import AgentServer,RunStore
-from python_service.deepagent_contract import run_workflow,AgentContractError
+from python_service.deepagent_contract import run_workflow,graph_scoring_inputs,AgentContractError
 from python_service.demo_scoring import score_java_synthetic_payload
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -18,6 +18,39 @@ def fixture():return json.loads((ROOT/'contracts/examples/deepagent-v1.request.e
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_graph_edge_and_node_both_gate_scoring_input(self):
+        body=fixture()
+        baseline=run_workflow(body,score_java_synthetic_payload)
+        feature_map={row['featureName']:row for row in body['features']}
+        for disable_node in (False,True):
+            graph=copy.deepcopy(baseline['graph'])
+            if disable_node:
+                next(n for n in graph['nodes'] if n['id']=='APOE_E4_COUNT')['status']='MISSING'
+            else:
+                next(e for e in graph['edges'] if e['from']=='APOE_E4_COUNT')['status']='MISSING'
+            visits,features=graph_scoring_inputs(body['visits'],feature_map,graph)
+            self.assertNotIn('APOE_E4_COUNT',[f['featureName'] for f in features])
+            scored=score_java_synthetic_payload({
+                'contractVersion':'stage4-v1','subjectCode':body['subjectCode'],
+                'modelVersion':'python-demo-logistic-v1','dataVersion':body['dataVersion'],
+                'predictionWindowMonths':24,'visits':visits,'features':features})
+            self.assertAlmostEqual(baseline['riskScore']-scored['score'],.045,places=4)
+    def test_missing_graph_scoring_route_fails_before_score(self):
+        body=fixture();graph=run_workflow(body,score_java_synthetic_payload)['graph']
+        next(e for e in graph['edges'] if e['from']=='COGNITION')['status']='MISSING'
+        with self.assertRaises(AgentContractError):
+            graph_scoring_inputs(body['visits'],{f['featureName']:f for f in body['features']},graph)
+    def test_fusion_passes_only_one_canonical_observation_per_feature(self):
+        body=fixture();body['features'].append(dict(body['features'][0]))
+        captured=[]
+        def scoring(request):
+            captured.append(request);return score_java_synthetic_payload(request)
+        actual=run_workflow(body,scoring)
+        self.assertEqual(len(captured[0]['features']),3)
+        self.assertEqual(actual['riskScore'],run_workflow(fixture(),score_java_synthetic_payload)['riskScore'])
+    def test_compact_date_rejected_at_workflow_boundary(self):
+        body=fixture();body['features'][0]['recordedAt']='20250101'
+        with self.assertRaises(AgentContractError):run_workflow(body,score_java_synthetic_payload)
     def test_original_example_is_reproduced(self):
         expected=json.loads((ROOT/'contracts/examples/deepagent-v1.response.example.json').read_text(encoding='utf-8'))
         actual=run_workflow(fixture(),score_java_synthetic_payload)

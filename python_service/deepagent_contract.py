@@ -94,6 +94,8 @@ def validate_request(payload: dict[str, Any]) -> None:
 def _check_date(value: Any, label: str) -> None:
     if not isinstance(value, str):
         raise AgentContractError(f"{label}缺失")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise AgentContractError(f"{label}应为 YYYY-MM-DD")
     try:
         parsed = date.fromisoformat(value)
     except ValueError as exc:
@@ -114,6 +116,25 @@ def _check_number(value: Any, label: str, lower: float | None, upper: float | No
 def payload_digest(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def graph_scoring_inputs(
+    visits: list[dict[str, Any]], feature_map: dict[str, dict[str, Any]],
+    graph: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Gate canonical observations through active nodes/edges, without inferring effects.
+
+    The arrows specify input eligibility, not a computed biological mediation.
+    MRI side preference remains a property of the existing demonstration scorer.
+    """
+    active_nodes = {node["id"] for node in graph["nodes"] if node["status"] == "ACTIVE"}
+    active_edges = {(edge["from"], edge["to"]) for edge in graph["edges"]
+                    if edge["status"] == "ACTIVE"}
+    if not {"COGNITION", "WARNING"} <= active_nodes or ("COGNITION", "WARNING") not in active_edges:
+        raise AgentContractError("图谱缺少有效评分入口", 500, "ASSESSMENT_FAILED")
+    selected = [dict(feature_map[name]) for name in sorted(feature_map)
+                if name in FEATURES and name in active_nodes and (name, "COGNITION") in active_edges]
+    return [dict(row) for row in visits], selected
 
 
 def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
@@ -183,14 +204,15 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
     graph = {"nodes": nodes, "edges": edges, "paths": paths, "graphVersion": "synthetic-prior-v1"}
     stages.append(_stage("CAUSAL_GRAPH", "COMPLETED", tic, {"activePaths": sum(p["status"] == "ACTIVE" for p in paths)}))
 
-    # WARNING_MODEL: the existing versioned demonstration scorer supplies
-    # contributions. The graph mask decides which observed inputs may enter.
+    # WARNING_MODEL: active graph nodes/edges gate the canonical observations.
+    # This does not estimate causal effects or change the demo scoring formula.
     tic = time.perf_counter()
+    scoring_visits, scoring_features = graph_scoring_inputs(visits, feature_map, graph)
     legacy = score_tool({
         "contractVersion": "stage4-v1", "subjectCode": payload["subjectCode"],
         "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"],
-        "predictionWindowMonths": payload["predictionWindowMonths"], "visits": visits,
-        "features": [f for f in eligible if f["featureName"] in FEATURES],
+        "predictionWindowMonths": payload["predictionWindowMonths"], "visits": scoring_visits,
+        "features": scoring_features,
     })
     if legacy["qualityStatus"] == "BLOCKED":
         raise AgentContractError("评分工具与融合质量闸门不一致", 500, "ASSESSMENT_FAILED")
