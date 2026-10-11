@@ -1,0 +1,245 @@
+{
+  "httpContractVersion": "adni-v8-http-v1",
+  "requestId": "research-run-example-001",
+  "inputMode": "SYNTHETIC_TEST",
+  "runtimeRequest": {
+    "contractVersion": "adni-v8-research-v1",
+    "modelVersion": "adni-v8-final-materialized-2026-10-11",
+    "variant": "trajectory_graph",
+    "caseCode": "LOCAL-SYNTHETIC-001",
+    "indexDate": "2021-02-11",
+    "predictionWindowMonths": 24,
+    "graph": {
+      "nodes": [
+        {
+          "id": "mmse@180",
+          "feature": "mmse",
+          "value": 22.654521323039145,
+          "measurement_date": "2020-08-15",
+          "days_before_landmark": 180,
+          "source_visit": "DEMO-VISIT-180",
+          "source_table": "MMSE",
+          "unit": "score"
+        },
+        {
+          "id": "mmse@90",
+          "feature": "mmse",
+          "value": 22.992088877495167,
+          "measurement_date": "2020-11-13",
+          "days_before_landmark": 90,
+          "source_visit": "DEMO-VISIT-90",
+          "source_table": "MMSE",
+          "unit": "score"
+        },
+        {
+          "id": "mmse@0",
+          "feature": "mmse",
+          "value": 23.32965643195119,
+          "measurement_date": "2021-02-11",
+          "days_before_landmark": 0,
+          "source_visit": "DEMO-VISIT-0",
+          "source_table": "MMSE",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_sb@180",
+          "feature": "cdr_sb",
+          "value": 1.6417149328551508,
+          "measurement_date": "2020-08-15",
+          "days_before_landmark": 180,
+          "source_visit": "DEMO-VISIT-180",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_sb@90",
+          "feature": "cdr_sb",
+          "value": 1.8424753170144055,
+          "measurement_date": "2020-11-13",
+          "days_before_landmark": 90,
+          "source_visit": "DEMO-VISIT-90",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_sb@0",
+          "feature": "cdr_sb",
+          "value": 2.04323570117366,
+          "measurement_date": "2021-02-11",
+          "days_before_landmark": 0,
+          "source_visit": "DEMO-VISIT-0",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_global@180",
+          "feature": "cdr_global",
+          "value": 1.0,
+          "measurement_date": "2020-08-15",
+          "days_before_landmark": 180,
+          "source_visit": "DEMO-VISIT-180",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_global@90",
+          "feature": "cdr_global",
+          "value": 1.0,
+          "measurement_date": "2020-11-13",
+          "days_before_landmark": 90,
+          "source_visit": "DEMO-VISIT-90",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "cdr_global@0",
+          "feature": "cdr_global",
+          "value": 1.0,
+          "measurement_date": "2021-02-11",
+          "days_before_landmark": 0,
+          "source_visit": "DEMO-VISIT-0",
+          "source_table": "CDR",
+          "unit": "score"
+        },
+        {
+          "id": "age_years_source@10",
+          "feature": "birth_year",
+          "value": 1970.0,
+          "measurement_date": "2021-02-01",
+          "days_before_landmark": 10,
+          "source_visit": "DEMO-ANCHOR",
+          "source_table": "PTDEMOG.PTDOBYY",
+          "unit": "year"
+        },
+        {
+          "id": "education_years_source@10",
+          "feature": "education_years",
+          "value": 16.0,
+          "measurement_date": "2021-02-01",
+          "days_before_landmark": 10,
+          "source_visit": "DEMO-ANCHOR",
+          "source_table": "PTDEMOG.PTEDUCAT",
+          "unit": "years"
+        }
+      ],
+      "derived_nodes": [
+        {
+          "id": "mmse_slope",
+          "value": 1.3699616585006917,
+          "source_nodes": [
+            "mmse@180",
+            "mmse@90",
+            "mmse@0"
+          ],
+          "unit": "score/year"
+        },
+        {
+          "id": "cdr_sb_slope",
+          "value": 0.8147525590463085,
+          "source_nodes": [
+            "cdr_sb@180",
+            "cdr_sb@90",
+            "cdr_sb@0"
+          ],
+          "unit": "score/year"
+        },
+        {
+          "id": "cdr_global_slope",
+          "value": 0.0,
+          "source_nodes": [
+            "cdr_global@180",
+            "cdr_global@90",
+            "cdr_global@0"
+          ],
+          "unit": "score/year"
+        },
+        {
+          "id": "age_years_at_landmark",
+          "value": 51.0,
+          "source_nodes": [
+            "age_years_source@10"
+          ]
+        }
+      ],
+      "current_feature_nodes": {
+        "mmse": "mmse@0",
+        "cdr_sb": "cdr_sb@0",
+        "cdr_global": "cdr_global@0",
+        "age_years": "age_years_at_landmark",
+        "education_years": "education_years_source@10"
+      },
+      "chronological_edges": [
+        {
+          "source": "mmse@180",
+          "target": "mmse@90"
+        },
+        {
+          "source": "mmse@90",
+          "target": "mmse@0"
+        },
+        {
+          "source": "cdr_sb@180",
+          "target": "cdr_sb@90"
+        },
+        {
+          "source": "cdr_sb@90",
+          "target": "cdr_sb@0"
+        },
+        {
+          "source": "cdr_global@180",
+          "target": "cdr_global@90"
+        },
+        {
+          "source": "cdr_global@90",
+          "target": "cdr_global@0"
+        }
+      ],
+      "interaction_edges": [
+        {
+          "endpoints": [
+            "mmse",
+            "mmse_slope"
+          ],
+          "node_endpoints": [
+            "mmse@0",
+            "mmse_slope"
+          ],
+          "active": true
+        },
+        {
+          "endpoints": [
+            "cdr_sb",
+            "cdr_sb_slope"
+          ],
+          "node_endpoints": [
+            "cdr_sb@0",
+            "cdr_sb_slope"
+          ],
+          "active": true
+        },
+        {
+          "endpoints": [
+            "cdr_global",
+            "cdr_global_slope"
+          ],
+          "node_endpoints": [
+            "cdr_global@0",
+            "cdr_global_slope"
+          ],
+          "active": true
+        },
+        {
+          "endpoints": [
+            "mmse_slope",
+            "cdr_sb_slope"
+          ],
+          "node_endpoints": [
+            "mmse_slope",
+            "cdr_sb_slope"
+          ],
+          "active": true
+        }
+      ]
+    }
+  }
+}

@@ -49,6 +49,7 @@ Python 子服务（127.0.0.1:8091）
 | [Python 接口](contracts/python-agent.openapi.json) | 三个已实现的 HTTP 操作与请求/响应结构 |
 | [Java 业务接口目标](contracts/java-business.target.openapi.json) | 22个待实现操作、DTO、认证及错误结构 |
 | [联调约定](docs/Integration_Contract.md) | 状态、幂等、阻断、版本与失败处理 |
+| [可选研究服务](docs/Research_Runtime_Integration.md) | 由Python负责人在授权工作区运行；独立版本、来源图与合成验收，Java由同学接入 |
 | [AI 协作指南](docs/AI_Collaboration.md) | 任务拆分、上下文、提示模板、验证和接续工作 |
 | [协作规范](CONTRIBUTING.md) | 分支命名、提交、PR、评审与同步 |
 

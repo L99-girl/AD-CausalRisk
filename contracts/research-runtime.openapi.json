@@ -1,0 +1,860 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AD-CausalRisk optional local research runtime",
+    "version": "adni-v8-http-v1",
+    "description": "Optional dedicated Python-owner service. Synthetic acceptance only; not a clinical API or the course scoring contract."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8092"
+    }
+  ],
+  "x-implementation-state": "IMPLEMENTED_PYTHON_SYNTHETIC_ACCEPTANCE_ONLY",
+  "security": [
+    {
+      "LocalBearer": []
+    }
+  ],
+  "paths": {
+    "/api/research-runtime/v1/status": {
+      "get": {
+        "operationId": "researchRuntimeStatus",
+        "responses": {
+          "200": {
+            "description": "Completed computation or verified runtime status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or source graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Local access token required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Browser/direct call or input mode not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Route not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Request read timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version or request-ID conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 256KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "JSON content type required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime changed/unavailable or cache capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research-runtime/v1/predictions": {
+      "post": {
+        "operationId": "researchRuntimePredict",
+        "description": "Synchronous; repeated identical requestId returns the cached response. Same ID with changed input is 409. Cache is volatile and capped at 64. Node/case labels constrain declared synthetic scope, not independent data-origin verification.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchEnvelope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed computation or verified runtime status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or source graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Local access token required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Browser/direct call or input mode not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Route not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Request read timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version or request-ID conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 256KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "JSON content type required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime changed/unavailable or cache capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "LocalBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "SourceGraph": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "feature": {
+                  "enum": [
+                    "birth_year",
+                    "education_years",
+                    "mmse",
+                    "cdr_sb",
+                    "cdr_global"
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "source_table": {
+                  "type": "string"
+                },
+                "source_visit": {
+                  "type": "string",
+                  "pattern": "^DEMO-.+"
+                },
+                "measurement_date": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "days_before_landmark": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "feature",
+                "value",
+                "unit",
+                "source_table",
+                "source_visit",
+                "measurement_date",
+                "days_before_landmark"
+              ],
+              "additionalProperties": true
+            },
+            "maxItems": 1000
+          },
+          "derived_nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "source_nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "value": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "source_nodes",
+                "value"
+              ],
+              "additionalProperties": true
+            },
+            "maxItems": 4
+          },
+          "current_feature_nodes": {
+            "type": "object",
+            "properties": {
+              "age_years": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "education_years": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mmse": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cdr_sb": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cdr_global": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "chronological_edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "interaction_edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "endpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "node_endpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "endpoints",
+                "node_endpoints",
+                "active"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "nodes",
+          "derived_nodes",
+          "current_feature_nodes",
+          "chronological_edges",
+          "interaction_edges"
+        ],
+        "additionalProperties": true
+      },
+      "RuntimeRequest": {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "const": "adni-v8-research-v1"
+          },
+          "modelVersion": {
+            "const": "adni-v8-final-materialized-2026-10-11"
+          },
+          "variant": {
+            "enum": [
+              "latest",
+              "history",
+              "prior_availability",
+              "trajectory_graph",
+              "random_availability",
+              "random_graph"
+            ]
+          },
+          "caseCode": {
+            "type": "string",
+            "pattern": "^LOCAL-SYNTHETIC-[A-Za-z0-9-]+$",
+            "maxLength": 54
+          },
+          "indexDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "predictionWindowMonths": {
+            "type": "integer",
+            "const": 24
+          },
+          "graph": {
+            "$ref": "#/components/schemas/SourceGraph"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "modelVersion",
+          "variant",
+          "caseCode",
+          "indexDate",
+          "predictionWindowMonths",
+          "graph"
+        ],
+        "additionalProperties": false
+      },
+      "ResearchEnvelope": {
+        "type": "object",
+        "properties": {
+          "httpContractVersion": {
+            "const": "adni-v8-http-v1"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^research-run-[A-Za-z0-9][A-Za-z0-9-]{0,47}$"
+          },
+          "inputMode": {
+            "const": "SYNTHETIC_TEST"
+          },
+          "runtimeRequest": {
+            "$ref": "#/components/schemas/RuntimeRequest"
+          }
+        },
+        "required": [
+          "httpContractVersion",
+          "requestId",
+          "inputMode",
+          "runtimeRequest"
+        ],
+        "additionalProperties": false
+      },
+      "SourceExplanation": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "const": "source_withdrawal_with_derived_features_and_masks_recomputed"
+          },
+          "baseline": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "contributions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sourceFamily": {
+                  "enum": [
+                    "age_years",
+                    "education_years",
+                    "mmse",
+                    "cdr_sb",
+                    "cdr_global"
+                  ]
+                },
+                "contribution": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sourceFamily",
+                "contribution"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "reconstructionResidual": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1e-12
+          },
+          "causalEffectIdentified": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "reference",
+          "baseline",
+          "contributions",
+          "reconstructionResidual",
+          "causalEffectIdentified"
+        ],
+        "additionalProperties": false
+      },
+      "RuntimeResult": {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "const": "adni-v8-research-v1"
+          },
+          "modelVersion": {
+            "const": "adni-v8-final-materialized-2026-10-11"
+          },
+          "variant": {
+            "enum": [
+              "latest",
+              "history",
+              "prior_availability",
+              "trajectory_graph",
+              "random_availability",
+              "random_graph"
+            ]
+          },
+          "caseCode": {
+            "type": "string"
+          },
+          "status": {
+            "const": "RESEARCH_COMPUTATION_COMPLETE"
+          },
+          "qualityStatus": {
+            "enum": [
+              "PASS",
+              "WARN"
+            ]
+          },
+          "predictionWindowMonths": {
+            "type": "integer",
+            "const": 24
+          },
+          "adCumulativeIncidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "otherDementiaCumulativeIncidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "missingInputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "modelArtifactSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "explanation": {
+            "$ref": "#/components/schemas/SourceExplanation"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/SourceGraph"
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "stage": {
+                    "const": "SOURCE_INTEGRATION"
+                  }
+                },
+                "required": [
+                  "stage"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stage": {
+                    "const": "PARTICIPANT_GRAPH"
+                  }
+                },
+                "required": [
+                  "stage"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stage": {
+                    "const": "RISK_PREDICTION"
+                  }
+                },
+                "required": [
+                  "stage"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stage": {
+                    "const": "PREDICTION_EXPLANATION"
+                  }
+                },
+                "required": [
+                  "stage"
+                ],
+                "additionalProperties": true
+              }
+            ],
+            "items": false
+          },
+          "scope": {
+            "const": "LOCAL_RESEARCH_ONLY"
+          },
+          "clinicalUseEstablished": {
+            "type": "boolean",
+            "const": false
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "contractVersion",
+          "modelVersion",
+          "variant",
+          "caseCode",
+          "status",
+          "qualityStatus",
+          "predictionWindowMonths",
+          "adCumulativeIncidence",
+          "otherDementiaCumulativeIncidence",
+          "missingInputs",
+          "modelArtifactSha256",
+          "explanation",
+          "graph",
+          "stages",
+          "scope",
+          "clinicalUseEstablished",
+          "limitations"
+        ],
+        "additionalProperties": false
+      },
+      "ResearchResponse": {
+        "type": "object",
+        "properties": {
+          "httpContractVersion": {
+            "const": "adni-v8-http-v1"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "status": {
+            "const": "COMPLETED"
+          },
+          "inputMode": {
+            "const": "SYNTHETIC_TEST"
+          },
+          "inputDeclarationIndependentlyVerified": {
+            "type": "boolean",
+            "const": false
+          },
+          "eligibilityVerified": {
+            "type": "boolean",
+            "const": false
+          },
+          "result": {
+            "$ref": "#/components/schemas/RuntimeResult"
+          }
+        },
+        "required": [
+          "httpContractVersion",
+          "requestId",
+          "status",
+          "inputMode",
+          "inputDeclarationIndependentlyVerified",
+          "eligibilityVerified",
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "RuntimeStatus": {
+        "type": "object",
+        "properties": {
+          "httpContractVersion": {
+            "const": "adni-v8-http-v1"
+          },
+          "contractVersion": {
+            "const": "adni-v8-research-v1"
+          },
+          "modelVersion": {
+            "const": "adni-v8-final-materialized-2026-10-11"
+          },
+          "ready": {
+            "type": "boolean",
+            "const": true
+          },
+          "scope": {
+            "const": "LOCAL_RESEARCH_ONLY"
+          },
+          "inputMode": {
+            "const": "SYNTHETIC_TEST"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "latest",
+                "history",
+                "prior_availability",
+                "trajectory_graph",
+                "random_availability",
+                "random_graph"
+              ]
+            },
+            "minItems": 6,
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "clinicalUseEstablished": {
+            "type": "boolean",
+            "const": false
+          },
+          "eligibilityVerified": {
+            "type": "boolean",
+            "const": false
+          },
+          "persistentRequestCache": {
+            "type": "boolean",
+            "const": false
+          },
+          "runtimeManifestSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "httpContractVersion",
+          "contractVersion",
+          "modelVersion",
+          "ready",
+          "scope",
+          "inputMode",
+          "variants",
+          "clinicalUseEstablished",
+          "eligibilityVerified",
+          "persistentRequestCache",
+          "runtimeManifestSha256"
+        ],
+        "additionalProperties": false
+      },
+      "ResearchError": {
+        "type": "object",
+        "properties": {
+          "httpContractVersion": {
+            "const": "adni-v8-http-v1"
+          },
+          "status": {
+            "const": "REJECTED"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]+$"
+          }
+        },
+        "required": [
+          "httpContractVersion",
+          "status",
+          "code"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}
