@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: ad-causalrisk-backend
+
+  # The datasource is intentionally NOT configured here. Pick a profile explicitly:
+  #   local -> MySQL 8 via the ADCR_* environment variables (application-local.yml)
+  #   test  -> H2 in MySQL compatibility mode (src/test/resources/application-test.yml)
+  # Starting with no profile fails fast on a missing datasource instead of silently
+  # falling back to an in-memory database.
+
+  jpa:
+    # DTOs are mapped in the service layer, so the persistence context must not be
+    # kept open for the view.
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema. Never 'update': Design_Guide forbids rebuilding
+      # tables on startup, and entity/schema drift must fail loudly.
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # V2 stores BCrypt hashes, which contain '$' characters. Disabling placeholder
+    # substitution removes any chance of Flyway rewriting them.
+    placeholder-replacement: false
+
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true

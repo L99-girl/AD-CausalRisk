@@ -1,0 +1,26 @@
+name: Java backend build and tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      # The wrapper was added from a Windows checkout, where git cannot record the
+      # executable bit (core.filemode=false), so the POSIX script arrives as 100644 and
+      # ./mvnw would fail with "Permission denied". Committing it with
+      # `git add --chmod=+x backend/mvnw` removes the need for this step; until then it
+      # keeps CI working on Linux.
+      - run: chmod +x mvnw
+        working-directory: backend
+      # Tests run on H2 in MySQL compatibility mode, so no database service is required.
+      # Flyway migrates the schema during the test context startup.
+      - run: ./mvnw -B -ntp verify
+        working-directory: backend
