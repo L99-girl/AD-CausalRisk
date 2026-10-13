@@ -1,0 +1,15 @@
+# Local development profile: MySQL 8 (the target database).
+#
+# Every value comes from the environment. No credential is committed; see
+# backend/.env.example for the placeholder names. The profile fails fast when the
+# variables are unset, so a missing configuration never looks like a working setup.
+#
+# NOT YET VERIFIED: this environment has no MySQL server, so this URL and the
+# MySQL branch of the migrations have never been executed. Only H2 (test profile)
+# has been run. See backend/README.md.
+spring:
+  datasource:
+    url: "${ADCR_DB_URL:jdbc:mysql://127.0.0.1:3306/ad_causalrisk?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}"
+    username: "${ADCR_DB_USERNAME}"
+    password: "${ADCR_DB_PASSWORD}"
+    driver-class-name: com.mysql.cj.jdbc.Driver

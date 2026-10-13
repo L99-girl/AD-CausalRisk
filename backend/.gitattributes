@@ -1,0 +1,4 @@
+# The Maven Wrapper POSIX script must keep LF; the batch script must keep CRLF.
+# Scoped to backend/ so the shared repository-root .gitattributes stays untouched.
+mvnw text eol=lf
+mvnw.cmd text eol=crlf
