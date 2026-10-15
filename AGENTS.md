@@ -1,59 +1,109 @@
-# Project rules for AI coding assistants
+# AGENTS.md
 
-## Read before implementing
+说明
+---
+本文件为前端界面呈现与实现说明（高端管理后台风格，参考 SnowAdmin）。目标是提供模块列表、页面功能、依赖关系、当前进度与实现建议，便于前端开发与产品对齐。
 
-Read README.md, docs/Course_SRS_V3_2.md, docs/Integration_Contract.md,
-the applicable contracts/*.openapi.json and the README in the assigned module.
-Use docs/Design_Guide.md for role, persistence and page requirements.
-Inspect the current branch and existing code before creating or replacing files.
+设计风格
+---
+- 整体风格：参考 SnowAdmin（简洁、现代、卡片/仪表盘为主、冷色系、留白充足）。
+- 组件与主题：使用可定制的主题变量（颜色、间距、阴影）。建议使用组件库（Element Plus / Naive UI / Ant Design Vue）或自定义 UI 组件库以保持一致性。
+- 适配性：响应式布局（桌面为主，支持平板/手机视图），良好可访问性（键盘导航、语义化标签、ARIA）。
+- 代码风格：建议 Vue 3 + Composition API（仓库为 Vue 为主时优先），TypeScript 可选但推荐，Pinia 状态管理，Vue Router，Axios/Fetch 用于 API 请求。
 
-## Scope and ownership
+模块与页面清单
+---
+| 模块 | 页面名称 | 主要功能 | 依赖状态 | 你的进度 |
+|---|---:|---|---:|---:|
+| 认证模块 | 登录页 | 用户名/密码登录、角色区分 | ✅ 可独立开发 | 已完成 |
+| 档案管理 | 档案列表页 | 搜索、筛选、分页展示受试者 | ✅ 可独立开发 | 已完成 |
+| 档案管理 | 档案详情页 | 查看单个受试者完整信息 | ✅ 可独立开发 | 待开发 |
+| 档案管理 | 新建/编辑档案弹窗 | 表单填写、数据校验、提交 | ✅ 可独立开发 | 待开发 |
+| 档案管理 | 导入CSV | 文件上传、进度展示、结果反馈 | ✅ 可独立开发 | 待开发 |
+| 随访管理 | 随访列表页 | 展示随访计划与完成状态 | ✅ 可独立开发 | 待开发 |
+| 随访管理 | 随访记录页 | 查看/录入随访结果 | ✅ 可独立开发 | 待开发 |
+| 风险与图谱 | 因果图谱可视化 | DAG图展示、节点交互 | ⚠️ 依赖Python服务 | 待开发 |
+| 风险与图谱 | 风险评分展示 | 风险分、质量状态、解释文本 | ⚠️ 依赖Java后端 | 待开发 |
+| 报告 | 随访报告页 | 生成/查看随访报告 | ⚠️ 依赖Java后端 | 待开发 |
+| 统计仪表板 | 仪表板 | 数据概览、图表展示 | ✅ 可独立开发 | 待开发 |
+| 系统 | 用户管理 | 用户列表、角色分配 | ✅ 可独立开发 | 待开发 |
 
-- backend owns Java business APIs, database migrations, authorization, tasks,
-  AgentClient, persistence, reviews, follow-ups, reports and audit.
-- frontend owns routes, sessions, typed API clients, role views, pages and UI tests.
-- python_service owns the four-stage workflow and HTTP contract implementation.
-- Work within the requested module. Explain cross-module or shared-contract
-  changes and obtain agreement before implementing them.
-- Do not start additional agents unless the developer explicitly requests them.
-- Never overwrite uncommitted work or use a hard reset/force push to resolve it.
+实现与技术建议
+---
+- 框架与语言
+  - 优先：Vue 3 + Composition API（仓库语言显示 Vue 占比高），推荐启用 TypeScript（提高可维护性）。
+  - 路由：Vue Router；状态管理：Pinia；样式：SCSS 或 Tailwind（若偏向高度定制可选 SCSS）。
+- 组件库与设计系统
+  - 可选项：Element Plus、Naive UI、Ant Design Vue（依据团队偏好与视觉贴近度选择）。
+  - 若希望贴合 SnowAdmin 风格，可自定义主题变量并在基础组件上覆盖样式。
+- 可视化
+  - 图表库：ECharts、Chart.js、ApexCharts（ECharts 对复杂图表与大数据量支持好）。
+  - 因果图谱（DAG）：推荐使用 D3、vis.js、或 dagre-d3 / cytoscape.js；与后端 Python 服务配合返回节点/边数据。
+- 文件上传/导入
+  - 前端：支持分片上传（大文件）、上传进度反馈、校验（CSV 列校验、预览）。
+  - 后端约定：导入接口返回批量处理结果、错误明细。
+- 表单与验证
+  - 使用表单库或组件（例如 VeeValidate / @vuelidate）实现字段校验和友好错误提示。
+- i18n 与可配置文本
+  - 若存在多语言需求，集成 vue-i18n。
+- 可访问性（A11y）
+  - 所有表单字段标注 label、键盘可操作、色彩对比满足 WCAG。
+- 性能
+  - 切分路由懒加载、按需加载图表库、列表使用虚拟滚动（大量数据时）。
 
-## Contract invariants
+后端依赖与接口约定（需与后端对齐）
+---
+- 因果图谱（Python服务）
+  - 数据接口应返回节点列表、边列表、节点元信息（id、label、score、metadata）。
+  - 支持按筛选条件返回子图/子集，或按分页加载邻近节点。
+- 风险评分、报告（Java后端）
+  - 风险评分接口：/api/risk/score?subjectId=...
+  - 报告生成：/api/report/generate、/api/report/{id}/download（支持 PDF/HTML）
+- 用户与权限
+  - 认证：JWT 或 session；登录接口需返回角色/权限集合，前端根据角色显示不同菜单/操作。
+- 数据导入
+  - 接口支持文件上传、异步导入任务查询（任务ID -> 查看进度/结果）。
 
-- Browser clients call Java; Java calls Python on its configured local address.
-- Python execution is synchronous and its run store is volatile.
-  Java persists tasks and results; do not fabricate live stage progress.
-- The default scoring window is 24 months. Other valid windows can return BLOCKED.
-- BLOCKED means riskScore=null and riskLevel=UNAVAILABLE; never substitute a score.
-- Preserve DEMO-* subject codes, demo-* versions and SYNTHETIC_DEMO result labels.
-- Keep Java task-creation idempotency distinct from Python runId replay.
-- Validate runId, versions and returned structure. Surface timeouts/conflicts/errors.
-- Enforce role and object access in Java. Patient summaries exclude raw scores,
-  graph weights and internal traces; hiding a UI element is insufficient.
-- Keep source dates, units, missing values and data/model/workflow versions.
-- Do not change rules or weaken tests merely to make an integration appear successful.
+视觉与组件细节（与 SnowAdmin 一致性建议）
+---
+- 色彩：主色调采用冷色（蓝灰），强调色用于操作/告警（橙/红/绿）。
+- 卡片：浅阴影、圆角、内部留白；头部有小图标与标题。
+- 仪表盘：数字卡 + 小图 + 时间范围选择器。
+- 列表与表格：行内操作、列筛选、列冻结、批量操作、行折叠详情。
+- 表单弹窗：大号 Modal（居中、宽度可配置），步骤表单支持逐步创建复杂档案。
 
-## Validation and documentation
+开发进度 & 下一步
+---
+当前你已完成：登录页、档案列表页。
+推荐下一步（按优先级）：
+1. 档案详情页（独立开发） — 提供快速查看与编辑入口。
+2. 新建/编辑档案弹窗（表单与校验）。
+3. 文件导入（CSV） — 前端上传与导入结果反馈。
+4. 随访模块的列表与录入页面。
+5. 统计仪表板与可视化（ECharts）。
+6. 风险图谱（与 Python 团队对接，先做静态 mock 可视化）。
+7. 风险评分与报告（与 Java 团队并行对接 API）。
 
-Python checks from the repository root:
+建议的里程碑（示例）
+---
+- M1 (2 周)：档案详情 + 新建/编辑弹窗 + 导入CSV（基础）
+- M2 (2 周)：随访列表与随访记录页面
+- M3 (2 周)：统计仪表盘 + 基本图表
+- M4 (2-3 周)：因果图谱集成（含后端对接） + 风险评分展示 + 报告查看
 
-Windows: `.venv/Scripts/python.exe -m unittest discover -s tests -v`
+附：开发检查清单
+---
+- [ ] 确认技术栈（Vue 版本、TypeScript 启用与否、组件库）
+- [ ] API 文档与 Mock 接口（优先建立 Mock Server）
+- [ ] 设计规范（颜色、间距、组件规格）
+- [ ] 路由结构与权限中台设计
+- [ ] 国际化与日期/时区策略
+- [ ] 单元测试与端到端测试策略
 
-Linux/macOS: `.venv/bin/python -m unittest discover -s tests -v`
+联系方式与对接
+---
+如需我将此文件提交到仓库，请给出目标仓库（owner/repo）与分支（或使用默认分支），以及是否需要我同时创建基础目录（如 /docs 或 项目根）并发起 PR。
 
-Install test dependencies with the same interpreter and requirements-dev.lock.
-Each Java/frontend implementation must document and run its own build/test commands.
-Update request/response examples and affected tests when a contract changes.
-Run relevant checks and fix actual failures. Report commands, results and limits;
-never claim a test ran if it did not.
 
-Document team-facing setup and behavior. Exclude chat history, internal handoff
-notes, machine-specific audit snapshots and private project background.
-Keep credentials, personal records, virtual environments and build caches out of Git.
 
-## Completion
 
-Summarize behavior changes, files, actual tests and remaining work. Prepare a PR
-description when asked. Commit, push, create or merge a PR only when the developer
-has explicitly requested that action. Do not modify repository membership/settings
-or deploy services as part of an ordinary coding task.
