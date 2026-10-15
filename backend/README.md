@@ -14,19 +14,27 @@
 
 ---
 
-## 1. 已实现范围（本 PR）
+## 1. 已实现范围
 
-共同契约共 **22 个操作**，本 PR 实现 **3 个**：
+共同契约共 **22 个操作**，目前已实现 **6 个**：
 
+### 第一组：认证（auth）
 | 操作 | 路径 | 说明 |
 | --- | --- | --- |
 | `postApiAuthLogin` | `POST /api/auth/login` | JSON 登录，建立 `JSESSIONID` 会话 |
 | `postApiAuthLogout` | `POST /api/auth/logout` | 使会话失效 |
 | `getApiMe` | `GET /api/me` | 返回当前用户与角色菜单 |
 
-另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、后端 CI。
+### 第二组：档案管理（subject）
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `getApiSubjects` | `GET /api/subjects` | 分页查询档案列表，先按权限过滤再分页 |
+| `postApiSubjects` | `POST /api/subjects` | 创建档案（ADMIN / RESEARCHER） |
+| `getApiSubjectsBySubjectId` | `GET /api/subjects/{subjectId}` | 查询档案详情（visits / features 固定为空数组） |
 
-**档案（subject）相关操作由另一位同学在后续 PR 实现**，本 PR 不包含 `Subject` / `SubjectRepository` / `SubjectService` / `SubjectController` / `SubjectMapper` 及其 DTO 与测试。
+权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建仅限 ADMIN / RESEARCHER。
+
+另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、后端 CI。
 
 ## 2. 固定版本
 
@@ -124,6 +132,9 @@ cd backend
 | `SchemaMigrationTest` | 11 | 迁移执行、15 张表精确集合、唯一/外键/CHECK 约束确实生效、种子账号与 BCrypt 口令匹配 |
 | `EnvelopeContractTest` | 15 | 六键 `Envelope`、null 不省略、未知字段拒绝、400/401/403/404/405/415/500 映射、traceId 透传、真实安全过滤链 |
 | `AuthApiTest` | 12 | 登录 / 登出 / `api/me`、多角色并集与菜单、统一失败提示、会话固定防护、会话失效 |
+| `SubjectApiTest` | 22 | 三接口正常流程、分页边界钳位、subjectCode 格式/重复校验、不存在返回 400、DOCTOR/PATIENT 创建返回 403、DOCTOR 只看授权档案、未登录 401、详情 visits/features 为空数组、真实登录建立 session、契约 schema 校验 |
+
+总计 **60 个测试**，全部在 H2（`MODE=MySQL`）上通过。
 
 响应同时被 `contracts/java-business.target.openapi.json` **本身**校验：`ContractSchemas` 读取契约文件、解析 `$ref`、按 JSON Schema 2020-12 并开启 format 断言。契约文件找不到时测试直接失败，不会静默跳过。
 
@@ -220,9 +231,10 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作中的 **19 个未实现**：档案、访视、特征、导入、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
+- 契约 22 个操作中的 **16 个未实现**：访视、特征、导入、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
+- **档案模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；访视/特征写入未实现（详情接口的 `visits` / `features` 当前固定返回空数组）。
 - **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。
-- **FR-AUTH-02/03 部分覆盖**：四角色表与 `subject_permission` 表已存在，但角色管理接口与档案对象级数据范围属于后续 PR。
+- **FR-AUTH-02/03 部分覆盖**：角色管理接口未实现；档案对象级权限已在 `SubjectAccessPolicy` 中实现但授权管理端点缺失。
 - **`Idempotency-Key` 处理未做**（`idempotency_record` 表已建）。
 - **患者字段过滤未做**（FR-EXPLAIN-02）：不返回排序数值、图权重与内部轨迹的要求尚未落实。
 - **Mock Python 超时 / 版本错 / 409 / BLOCKED 测试未做**；重启历史查询未做。
