@@ -2,6 +2,8 @@
 
 AD-CausalRisk 是一个课程协作项目，将多源资料整理、质量检查、条件图谱、排序解释和随访管理连接成完整的 Web 应用。仓库提供可运行的 Python 子服务、接口契约和演示数据，后端与前端成员分别完成 Java 业务系统和浏览器应用。
 
+Python三表解析、错误行、关联和原质量门槛的调用方式见[课程CSV预检说明](docs/Python_Csv_Preflight.md)；确认入库与业务持久化仍由Java完成。
+
 首次参与按以下顺序开始：克隆仓库 → 运行 Python 示例 → 阅读需求和接口 → 选择一个功能 → 创建分支 → 实现与测试 → 提交 PR。与 AI 一起开发时，可使用下文的任务模板。
 
 Python本地交付修订标识为`course-python-2026.10.11.1`。本修订让图节点/边明确决定评分输入，归并特征观测并严格检查日期形式；请求/响应字段和演示评分公式保持。图中ACTIVE表示观测可用，左右海马的实际取值及贡献重构规则见[联调约定](docs/Integration_Contract.md#图谱与评分的实际关系)。交付修订标识用于源码包追踪，不是请求中的modelVersion或新增接口字段；克隆远端所得版本需核对实际提交及发布状态。
@@ -50,6 +52,11 @@ Python 子服务（127.0.0.1:8091）
 | [Java 业务接口目标](contracts/java-business.target.openapi.json) | 22个待实现操作、DTO、认证及错误结构 |
 | [联调约定](docs/Integration_Contract.md) | 状态、幂等、阻断、版本与失败处理 |
 | [可选研究服务](docs/Research_Runtime_Integration.md) | 由Python负责人在授权工作区运行；独立版本、来源图与合成验收，Java由同学接入 |
+| [受控研究客户端](docs/Controlled_Research_Client.md) | 用标准库调用既有本机研究系统的目录、批量任务与结果；不启动另一套服务，不改变课程合成接口 |
+| [合成报告与演示兼容](docs/Synthetic_Reports.md) | 完成任务的研究/教学报告、浏览器打印及同一演示服务的兼容适配；真实患者报告不开放 |
+| [模型状态与校验反馈](docs/Model_And_Task_Feedback.md) | 训练和加载的区别、接口标识用途、预期拒绝与服务故障、正常示例恢复 |
+| [研究基底与后端验收](docs/Research_Backend_Acceptance.md) | 实测访视序列、研究结果内存映射、来源图依赖、跨语言构造案例及性能与用途边界 |
+| [Python接口阶段验收](docs/Python_Interface_Acceptance.md) | 课程客户端、固定Schema与语义校验、异常JSON、100份合成HTTP一致性与只读验收记录 |
 | [AI 协作指南](docs/AI_Collaboration.md) | 任务拆分、上下文、提示模板、验证和接续工作 |
 | [协作规范](CONTRIBUTING.md) | 分支命名、提交、PR、评审与同步 |
 

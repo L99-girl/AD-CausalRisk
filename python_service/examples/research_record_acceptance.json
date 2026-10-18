@@ -1,0 +1,307 @@
+{
+  "fixtureScope": "CONSTRUCTED_ONLY_NOT_LIVE_MODEL_OR_PATIENT",
+  "expectedAlias": "ADNI-R-CONSTRUCTED-CLIENT",
+  "trustedModelSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inputResult": {
+    "contract": "adni-v8-real-retrospective-batch-v1",
+    "computation_contract": "adni-v8-real-retrospective-v1",
+    "mode": "REAL_RETROSPECTIVE_RESEARCH",
+    "alias": "ADNI-R-CONSTRUCTED-CLIENT",
+    "historical_realtime_prediction_available": false,
+    "clinical_use_established": false,
+    "export_allowed": false,
+    "qualification": {
+      "out_of_sample": null,
+      "index_date": "2021-02-11",
+      "historical_availability_verified": false,
+      "future_outcomes_used_as_features": false
+    },
+    "availability": {
+      "mmse": null
+    },
+    "core": {
+      "contractVersion": "adni-v8-research-v1",
+      "modelVersion": "adni-v8-final-materialized-2026-10-11",
+      "caseCode": "LOCAL-REAL-ADNI-R-CONSTRUCTED-CLIENT",
+      "variant": "trajectory_graph",
+      "status": "RESEARCH_COMPUTATION_COMPLETE",
+      "scope": "LOCAL_RESEARCH_ONLY",
+      "predictionWindowMonths": 24,
+      "clinicalUseEstablished": false,
+      "adCumulativeIncidence": 0.2,
+      "otherDementiaCumulativeIncidence": 0.1,
+      "explanation": {
+        "reference": "source_withdrawal_with_derived_features_and_masks_recomputed",
+        "causalEffectIdentified": false,
+        "baseline": 0.1,
+        "reconstructionResidual": 0.0,
+        "contributions": [
+          {
+            "sourceFamily": "age_years",
+            "contribution": 0.02
+          },
+          {
+            "sourceFamily": "cdr_global",
+            "contribution": 0.02
+          },
+          {
+            "sourceFamily": "cdr_sb",
+            "contribution": 0.02
+          },
+          {
+            "sourceFamily": "education_years",
+            "contribution": 0.02
+          },
+          {
+            "sourceFamily": "mmse",
+            "contribution": 0.02
+          }
+        ]
+      },
+      "modelArtifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "qualityStatus": "PASS",
+      "missingInputs": [],
+      "stages": [
+        {
+          "stage": "SOURCE_INTEGRATION"
+        },
+        {
+          "stage": "PARTICIPANT_GRAPH"
+        },
+        {
+          "stage": "RISK_PREDICTION"
+        },
+        {
+          "stage": "PREDICTION_EXPLANATION"
+        }
+      ],
+      "graph": {
+        "nodes": [
+          {
+            "id": "mmse",
+            "feature": "mmse",
+            "value": 27,
+            "unit": "score",
+            "source_table": "CONSTRUCTED",
+            "source_visit": "constructed-visit",
+            "measurement_date": "2021-01-01",
+            "days_before_landmark": 41
+          }
+        ],
+        "derived_nodes": [],
+        "current_feature_nodes": {
+          "mmse": "mmse"
+        },
+        "chronological_edges": [],
+        "interaction_edges": [
+          {
+            "endpoints": [
+              "mmse",
+              "cdr_sb"
+            ],
+            "node_endpoints": [
+              "mmse",
+              null
+            ],
+            "active": false,
+            "causal_effect_identified": false
+          }
+        ]
+      }
+    },
+    "training_membership": "NOT_REVERIFIED_POSSIBLE_DEVELOPMENT_RECORD",
+    "source_bindings": {
+      "constructed_source": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  },
+  "expectedRecord": {
+    "recordType": "RETROSPECTIVE_RESEARCH",
+    "alias": "ADNI-R-CONSTRUCTED-CLIENT",
+    "indexDate": "2021-02-11",
+    "modelVersion": "adni-v8-final-materialized-2026-10-11",
+    "modelArtifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "computationContract": "adni-v8-real-retrospective-v1",
+    "predictionWindowMonths": 24,
+    "endpoint": "RECORDED_AD_DIAGNOSIS_WITH_COMPETING_DEMENTIA",
+    "qualityStatus": "PASS",
+    "probabilities": {
+      "adCif": 0.2,
+      "otherDementiaCif": 0.1,
+      "unit": "proportion"
+    },
+    "sourceNodes": [
+      {
+        "id": "mmse",
+        "feature": "mmse",
+        "value": 27,
+        "unit": "score",
+        "measurementDate": "2021-01-01",
+        "availableDate": null,
+        "daysBeforeIndex": 41,
+        "sourceTable": "CONSTRUCTED",
+        "sourceVisit": "constructed-visit"
+      }
+    ],
+    "sourceBindings": {
+      "constructed_source": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "missingInputs": [],
+    "priorInteractions": [
+      {
+        "endpoints": [
+          "mmse",
+          "cdr_sb"
+        ],
+        "sourceNodeIds": [
+          "mmse",
+          null
+        ],
+        "active": false
+      }
+    ],
+    "derivedNodes": [],
+    "currentFeatureNodes": {
+      "mmse": "mmse"
+    },
+    "chronologicalEdges": [],
+    "attribution": {
+      "reference": "source_withdrawal_with_derived_features_and_masks_recomputed",
+      "baseline": 0.1,
+      "contributions": [
+        {
+          "sourceFamily": "age_years",
+          "contribution": 0.02
+        },
+        {
+          "sourceFamily": "cdr_global",
+          "contribution": 0.02
+        },
+        {
+          "sourceFamily": "cdr_sb",
+          "contribution": 0.02
+        },
+        {
+          "sourceFamily": "education_years",
+          "contribution": 0.02
+        },
+        {
+          "sourceFamily": "mmse",
+          "contribution": 0.02
+        }
+      ],
+      "reconstructionResidual": 0.0,
+      "unit": "probability_proportion",
+      "causalEffectIdentified": false
+    },
+    "stages": [
+      {
+        "stage": "SOURCE_INTEGRATION",
+        "durationMs": null
+      },
+      {
+        "stage": "PARTICIPANT_GRAPH",
+        "durationMs": null
+      },
+      {
+        "stage": "RISK_PREDICTION",
+        "durationMs": null
+      },
+      {
+        "stage": "PREDICTION_EXPLANATION",
+        "durationMs": null
+      }
+    ],
+    "boundaries": {
+      "clinicalUseEstablished": false,
+      "historicalAvailabilityVerified": false,
+      "historicalRealtimePredictionAvailable": false,
+      "outOfSample": null,
+      "trainingMembershipReverified": false,
+      "exportAllowed": false,
+      "individualPredictionInterval": null,
+      "causalEffectIdentified": false
+    },
+    "recordSha256": "001234553c2bdb845feb9028affb5278b6603ab088a81ba2889ae03dbe84f915"
+  },
+  "negativeCases": [
+    {
+      "path": [
+        "core",
+        "modelArtifactSha256"
+      ],
+      "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "expectedError": "MODEL_ARTIFACT_MISMATCH"
+    },
+    {
+      "path": [
+        "clinical_use_established"
+      ],
+      "value": true,
+      "expectedError": "RESULT_CONTRACT"
+    },
+    {
+      "path": [
+        "core",
+        "otherDementiaCumulativeIncidence"
+      ],
+      "value": 0.9,
+      "expectedError": "RESULT_CONTRACT"
+    },
+    {
+      "path": [
+        "availability",
+        "mmse"
+      ],
+      "value": "2021-01-01",
+      "expectedError": "RESULT_CONTRACT"
+    },
+    {
+      "path": [
+        "core",
+        "graph",
+        "nodes",
+        0,
+        "value"
+      ],
+      "value": 27.25,
+      "expectedError": "MMSE_TOTAL_NOT_INTEGER"
+    },
+    {
+      "path": [
+        "core",
+        "graph",
+        "nodes",
+        0,
+        "unit"
+      ],
+      "value": "percent",
+      "expectedError": "SOURCE_UNIT"
+    },
+    {
+      "path": [
+        "core",
+        "graph",
+        "nodes",
+        0,
+        "days_before_landmark"
+      ],
+      "value": 40,
+      "expectedError": "SOURCE_CHRONOLOGY"
+    },
+    {
+      "path": [
+        "core",
+        "graph",
+        "interaction_edges",
+        0,
+        "active"
+      ],
+      "value": true,
+      "expectedError": "INTERACTION_SOURCE_LINK"
+    }
+  ]
+}
