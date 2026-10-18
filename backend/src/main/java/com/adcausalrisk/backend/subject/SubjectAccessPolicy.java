@@ -34,6 +34,13 @@ public class SubjectAccessPolicy {
     /** Roles allowed to create new subjects. */
     private static final Set<String> CREATOR_ROLES = Set.of("ADMIN", "RESEARCHER");
 
+    /**
+     * Roles allowed to receive raw visit scores (the full {@code visits} array of
+     * {@code SubjectDetail}). Deliberately an allow-list: an unknown or future role must not
+     * inherit access to raw scale scores by accident.
+     */
+    private static final Set<String> RAW_SCORE_ROLES = Set.of("ADMIN", "RESEARCHER", "DOCTOR");
+
     private final SubjectPermissionRepository permissionRepository;
 
     public SubjectAccessPolicy(SubjectPermissionRepository permissionRepository) {
@@ -74,6 +81,23 @@ public class SubjectAccessPolicy {
         }
         List<Long> granted = permissionRepository.findDistinctSubjectIdByUserId(principal.userId());
         return granted.contains(subjectId);
+    }
+
+    /**
+     * Whether the principal may receive raw visit scores - the {@code visits} array of
+     * {@code SubjectDetail}, which carries {@code mmse}, {@code moca} and {@code cdrSb}.
+     *
+     * <p>This is a different question from {@link #canView}: that one answers "may this caller
+     * see the subject at all", and a PATIENT holding {@code SUMMARY_READ} answers yes. That
+     * grant is for the patient-facing summary, not for raw scale scores, so a PATIENT may read
+     * the subject while receiving an empty {@code visits} array.
+     *
+     * <p>An allow-list rather than a "deny PATIENT" check, so an unknown or future role is
+     * refused by default. Multi-role accounts follow the same "most permissive tier wins" rule
+     * as {@link #hasFullVisibility}: a DOCTOR who also holds PATIENT still sees the scores.
+     */
+    public boolean canReadRawScores(AppUserPrincipal principal) {
+        return principal.roleCodes().stream().anyMatch(RAW_SCORE_ROLES::contains);
     }
 
     /**

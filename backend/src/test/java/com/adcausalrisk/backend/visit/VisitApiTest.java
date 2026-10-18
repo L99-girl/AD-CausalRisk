@@ -275,6 +275,38 @@ class VisitApiTest {
         assertThat(body.get("data").get("visitDate").asText()).isEqualTo("2024-12-31");
     }
 
+    /**
+     * The contract accepts any precision (a plain {@code number} with only a min/max), so 27.55
+     * must be accepted. {@code DECIMAL(4,1)} cannot hold it, so it is rounded HALF_UP at the
+     * storage boundary, and both the create response and the value read back from the database
+     * report 27.6.
+     *
+     * <p>25.44 is included because it rounds <em>down</em>: together with 27.55 it proves the
+     * value is rounded rather than merely truncated (truncation would give 27.5).
+     */
+    @Test
+    void scoreWithMoreThanOneDecimalIsAcceptedAndRoundedToOneDecimal() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-SCALE-ROUND");
+
+        JsonNode created = bodyOf(mockMvc.perform(
+                        createVisit(subject.getId(), "BL", "2025-01-01", 27.55, 25.44, 0.55).session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(created.get("data").get("mmse").asDouble()).isEqualTo(27.6);
+        assertThat(created.get("data").get("mmse").asText()).isEqualTo("27.6");
+        assertThat(created.get("data").get("moca").asDouble()).isEqualTo(25.4);
+        assertThat(created.get("data").get("cdrSb").asDouble()).isEqualTo(0.6);
+        assertThat(ContractSchemas.validateResponse(created, VISITS_PATH, "post", 200)).isEmpty();
+
+        // What the database now holds, read back through the detail endpoint.
+        JsonNode stored = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(stored.get("mmse").asDouble()).isEqualTo(27.6);
+        assertThat(stored.get("moca").asDouble()).isEqualTo(25.4);
+        assertThat(stored.get("cdrSb").asDouble()).isEqualTo(0.6);
+    }
+
     // ===================================================================
     // 3. Validation failures
     // ===================================================================
@@ -318,22 +350,6 @@ class VisitApiTest {
 
         assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
         assertThat(body.get("message").asText()).contains("cdrSb");
-    }
-
-    @Test
-    void scoreWithMoreThanOneDecimalIsRejected() throws Exception {
-        MockHttpSession admin = login("admin");
-        Subject subject = seedSubject("DEMO-V-SCALE-TOO-FINE");
-
-        // DECIMAL(4,1) would round 27.55 to 27.6; the request is refused instead so that the
-        // stored value always equals the submitted value.
-        JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 27.55, null, null)
-                        .session(admin))
-                .andExpect(status().isBadRequest())
-                .andReturn());
-
-        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("mmse");
     }
 
     @Test

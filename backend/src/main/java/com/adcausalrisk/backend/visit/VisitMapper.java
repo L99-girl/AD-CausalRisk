@@ -1,6 +1,7 @@
 package com.adcausalrisk.backend.visit;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 import com.adcausalrisk.backend.subject.dto.VisitResultView;
 import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
@@ -20,15 +21,32 @@ public final class VisitMapper {
     /**
      * Builds a fresh entity for one subject. {@code id} is owned by the database, and
      * {@code subjectId} comes from the request path rather than the body.
+     *
+     * <p>Scores are rounded to the scale the DDL can store ({@code DECIMAL(4,1)}) here, at the
+     * single boundary between the API and persistence. The contract accepts any precision, so
+     * this is where a submitted value becomes storable; because {@code save} returns this entity
+     * and later reads come from the same row, the response always reports exactly what was
+     * stored.
+     *
+     * <p>Range validation runs on the submitted value (Bean Validation, before this method), so
+     * a value just below the minimum can never be rounded up into the valid range.
      */
     public static Visit toEntity(Long subjectId, VisitCreateRequest request) {
         return new Visit(
                 subjectId,
                 request.visitCode(),
                 request.visitDate(),
-                request.mmse(),
-                request.moca(),
-                request.cdrSb());
+                toStorageScale(request.mmse()),
+                toStorageScale(request.moca()),
+                toStorageScale(request.cdrSb()));
+    }
+
+    /**
+     * Rounds a submitted score to one decimal ({@code HALF_UP}), matching {@code DECIMAL(4,1)}.
+     * {@code null} stays {@code null}: a score that was not recorded is never turned into 0.
+     */
+    private static BigDecimal toStorageScale(BigDecimal value) {
+        return value == null ? null : value.setScale(1, RoundingMode.HALF_UP);
     }
 
     /**

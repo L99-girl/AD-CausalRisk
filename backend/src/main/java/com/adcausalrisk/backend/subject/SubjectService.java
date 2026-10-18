@@ -138,6 +138,12 @@ public class SubjectService {
      * then by id (the contract does not prescribe an order for that array). {@code features} is
      * still an empty array because the feature write endpoint has not been implemented - the
      * contract requires both keys to be present (not null, not omitted).
+     *
+     * <p><b>Raw scores are filtered by role.</b> A PATIENT may legitimately read the subject
+     * (for example through a {@code SUMMARY_READ} grant), but raw scale scores belong to the
+     * clinician-facing detail only, so {@code visits} is always an empty array unless
+     * {@link SubjectAccessPolicy#canReadRawScores} allows the caller. The rule lives in the
+     * policy class so that every future caller of that flag agrees with this one.
      */
     @Transactional(readOnly = true)
     public SubjectDetailView getSubjectDetail(Long subjectId, AppUserPrincipal principal) {
@@ -150,12 +156,20 @@ public class SubjectService {
         }
 
         // Permission is checked before the visit query, so an unauthorised caller never even
-        // touches the visit table.
-        List<VisitResultView> visits = visitRepository
-                .findBySubjectIdOrderByVisitDateAscIdAsc(subjectId)
-                .stream()
-                .map(VisitMapper::toResultView)
-                .toList();
+        // touches the visit table. Raw scores are a second, separate decision: a PATIENT with
+        // SUMMARY_READ may read the subject, but must not receive raw scale scores, so the
+        // array is empty and the query is skipped entirely rather than filtered afterwards.
+        //
+        // NOTE for the feature endpoint (not implemented yet): when SubjectDetail.features
+        // starts returning values, it must be gated by the same canReadRawScores check,
+        // otherwise the identical leak reappears through featureValue.
+        List<VisitResultView> visits = accessPolicy.canReadRawScores(principal)
+                ? visitRepository
+                        .findBySubjectIdOrderByVisitDateAscIdAsc(subjectId)
+                        .stream()
+                        .map(VisitMapper::toResultView)
+                        .toList()
+                : List.of();
 
         return SubjectMapper.toDetail(subject, visits);
     }

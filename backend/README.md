@@ -41,7 +41,9 @@
 
 权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建档案仅限 ADMIN / RESEARCHER；创建访视沿用**同一条** `SubjectAccessPolicy.canCreate` 规则，因此单档案的 `MANAGE` 授权并不足以创建访视。
 
-访视的分数缺失时按 `null` 保存并返回，**绝不补 0**；分数只接受 `DECIMAL(4,1)` 能精确表示的取值，范围 `mmse`/`moca` 0–30、`cdrSb` 0–18。
+**患者字段过滤**：PATIENT 可以凭 `SUMMARY_READ` 读取档案本身，但详情响应中的 `visits` 恒为空数组——原始量表分数（MMSE / MoCA / CDR-SB）只返回给 ADMIN / RESEARCHER / DOCTOR。判定集中在 `SubjectAccessPolicy.canReadRawScores`，是**白名单**（未知或未来新增的角色默认看不到分数）。
+
+访视的分数缺失时按 `null` 保存并返回，**绝不补 0**；范围 `mmse`/`moca` 0–30、`cdrSb` 0–18。契约允许任意精度，服务端**接受任意小数位**，写库前按 `RoundingMode.HALF_UP` 舍入到 1 位小数（`DECIMAL(4,1)`），响应返回的是入库值（如 `27.55` → `27.6`）。
 
 另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、后端 CI。
 
@@ -141,11 +143,11 @@ cd backend
 | `SchemaMigrationTest` | 11 | 迁移执行、15 张表精确集合、唯一/外键/CHECK 约束确实生效、种子账号与 BCrypt 口令匹配 |
 | `EnvelopeContractTest` | 15 | 六键 `Envelope`、null 不省略、未知字段拒绝、400/401/403/404/405/415/500 映射、traceId 透传、真实安全过滤链 |
 | `AuthApiTest` | 12 | 登录 / 登出 / `api/me`、多角色并集与菜单、统一失败提示、会话固定防护、会话失效 |
-| `SubjectApiTest` | 22 | 三接口正常流程、分页边界钳位、subjectCode 格式/重复校验、不存在返回 400、DOCTOR/PATIENT 创建返回 403、DOCTOR 只看授权档案、未登录 401、详情 visits/features 为空数组、真实登录建立 session、契约 schema 校验 |
-| `VisitApiTest` | 27 | 创建访视正常流程、读取闭环（详情 `visits` 出现新记录）、按 `visitDate`/`id` 排序、同 `visitCode` 跨档案可用、分数上下界、50 字符 `visitCode`、缺失分数存 `null` 不补 0、越界与 2 位小数拒绝、非法日期返回 `MALFORMED_JSON`、未知字段拒绝、重复 `visitCode` 返回 400 且不覆盖、档案不存在返回 400、DOCTOR/PATIENT 与仅有 `MANAGE` 授权者返回 403、未登录 401、契约 schema 校验 |
+| `SubjectApiTest` | 23 | 三接口正常流程、分页边界钳位、subjectCode 格式/重复校验、不存在返回 400、DOCTOR/PATIENT 创建返回 403、DOCTOR 只看授权档案、未登录 401、详情 visits/features 为空数组、**PATIENT 在确有访视时仍收到空 visits（并以 ADMIN 对照证明数据存在）**、真实登录建立 session、契约 schema 校验 |
+| `VisitApiTest` | 27 | 创建访视正常流程、读取闭环（详情 `visits` 出现新记录）、按 `visitDate`/`id` 排序、同 `visitCode` 跨档案可用、分数上下界、50 字符 `visitCode`、缺失分数存 `null` 不补 0、越界拒绝、多余小数按 HALF_UP 舍入为 1 位、非法日期返回 `MALFORMED_JSON`、未知字段拒绝、重复 `visitCode` 返回 400 且不覆盖、档案不存在返回 400、DOCTOR/PATIENT 与仅有 `MANAGE` 授权者返回 403、未登录 401、契约 schema 校验 |
 | `VisitServiceTest` | 1 | 纯 Mockito 单测：数据库唯一约束在预检之后触发时返回 400 `VALIDATION_ERROR` 而不是 500 |
 
-总计 **88 个测试**，全部在 H2（`MODE=MySQL`）上通过。
+总计 **89 个测试**，全部在 H2（`MODE=MySQL`）上通过。
 
 响应同时被 `contracts/java-business.target.openapi.json` **本身**校验：`ContractSchemas` 读取契约文件、解析 `$ref`、按 JSON Schema 2020-12 并开启 format 断言。契约文件找不到时测试直接失败，不会静默跳过。
 
@@ -244,11 +246,11 @@ cd backend
 
 - 契约 22 个操作中的 **15 个未实现**：特征、导入、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
 - **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
-- **访视分数的精度限制**：`visit` 表的三个分数列是 `DECIMAL(4,1)`，只能精确保存 1 位小数。请求层用 `@Digits(integer = 3, fraction = 1)` **拒绝**第二位小数（例如 `27.55` 返回 400），以免 MySQL 静默舍入、导致入库值与提交值不一致。契约写的是无标度 `number`，若要支持更多小数位需要新的迁移脚本。
+- **访视分数的精度**：`visit` 表的三个分数列是 `DECIMAL(4,1)`，只能存 1 位小数。契约允许任意精度的 `number`，因此请求层**不再拒绝**多余小数——此前的 `@Digits(integer = 3, fraction = 1)` 已移除（它会把契约合法的 `27.55` 判为 400），改为在写库前按 `HALF_UP` 舍入到 1 位：`27.55` → `27.6`，响应也返回 `27.6`。若要原样保留更高精度，需要新迁移把列改为更高标度，并同步契约与前端校验；本 PR 未做。
 - **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。
 - **FR-AUTH-02/03 部分覆盖**：角色管理接口未实现；档案对象级权限已在 `SubjectAccessPolicy` 中实现但授权管理端点缺失。
 - **`Idempotency-Key` 处理未做**（`idempotency_record` 表已建）。
-- **患者字段过滤未做**（FR-EXPLAIN-02）：不返回排序数值、图权重与内部轨迹的要求尚未落实。
+- **患者字段过滤只覆盖了访视分数**（FR-EXPLAIN-02）：PATIENT 的档案详情已不再返回原始量表分数（`visits` 恒为空），但评估结果中的**排序数值、图权重与内部阶段轨迹**仍需在后端过滤，目前未落实（属评估模块）。特征接入详情后也必须套用同一 `canReadRawScores` 判定。
 - **Mock Python 超时 / 版本错 / 409 / BLOCKED 测试未做**；重启历史查询未做。
 - **CSRF token 防护未做、`SameSite` 未显式配置**（见第 11 节）。
 - 后端 CI 已添加（`.github/workflows/backend-build.yml`），但**从未在 GitHub 上实际跑过**。
@@ -263,3 +265,4 @@ cd backend
 6. **CI 工作流未运行过**：`actions/setup-java` 的 Maven 缓存与 `chmod +x mvnw` 步骤仅经人工核对。
 7. **`mvnw` 的可执行位**：本仓库在 Windows 上添加，`core.filemode=false`，因此 `mvnw` 会以 `100644` 提交，Linux 上 `./mvnw` 会报 Permission denied。CI 用 `chmod +x mvnw` 规避；也可以 `git add --chmod=+x backend/mvnw` 从根上解决。
 8. **浏览器实机联调未做**：Cookie 属性、跨域、前端拦截 401 等均未在真实浏览器验证。
+9. **分数舍入与患者过滤只在 H2 上验证过**：契约允许任意精度的分数，服务端在入库前按 `HALF_UP` 舍入为 1 位小数（`27.55` → `27.6`，响应即入库值）；PATIENT 的 `visits` 过滤也只在 H2 2.3.232 上验证。MySQL 8 上的实际舍入行为、以及真实浏览器端到患者视图的联调均未验证。

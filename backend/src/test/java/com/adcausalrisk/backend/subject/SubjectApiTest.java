@@ -5,8 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -17,6 +19,8 @@ import com.adcausalrisk.backend.subject.entity.SubjectPermission;
 import com.adcausalrisk.backend.subject.entity.SubjectPermission.PermissionType;
 import com.adcausalrisk.backend.user.SysUser;
 import com.adcausalrisk.backend.user.SysUserRepository;
+import com.adcausalrisk.backend.visit.VisitRepository;
+import com.adcausalrisk.backend.visit.entity.Visit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -68,6 +72,9 @@ class SubjectApiTest {
 
     @Autowired
     private SysUserRepository sysUserRepository;
+
+    @Autowired
+    private VisitRepository visitRepository;
 
     // ===================================================================
     // 1. POST /api/subjects - create
@@ -387,6 +394,45 @@ class SubjectApiTest {
                 .andReturn());
 
         assertThat(body.get("errorCode").asText()).isEqualTo("ACCESS_DENIED");
+    }
+
+    /**
+     * A PATIENT legitimately holds {@code SUMMARY_READ} and may read the subject, but raw scale
+     * scores must not reach patient-facing output.
+     *
+     * <p>A visit is seeded first on purpose: without real data behind it, "visits is empty"
+     * would pass even if the filter were missing. The admin assertion then proves the same
+     * visit exists and is visible to a role that is allowed to see scores.
+     */
+    @Test
+    void patientSummaryCannotSeeRawVisitScores() throws Exception {
+        MockHttpSession admin = login("admin");
+        MockHttpSession patient = login("patient");
+        Subject subject = seedSubjectWithCode("DEMO-PATIENT-SUMMARY");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+        grantPermission(subject.getId(), "patient", PermissionType.SUMMARY_READ);
+
+        JsonNode asPatient = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(patient))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(asPatient.get("data").get("subject").get("id").asLong()).isEqualTo(subject.getId());
+        assertThat(asPatient.get("data").get("visits").isArray()).isTrue();
+        assertThat(asPatient.get("data").get("visits").size())
+                .as("PATIENT must not receive raw scale scores")
+                .isZero();
+        assertThat(ContractSchemas.validateResponse(asPatient, "/api/subjects/{subjectId}", "get", 200))
+                .isEmpty();
+
+        // Control: the same subject and the same visit, read by a role allowed to see scores.
+        JsonNode asAdmin = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(asAdmin.get("data").get("visits").size()).isEqualTo(1);
+        assertThat(asAdmin.get("data").get("visits").get(0).get("mmse").asDouble()).isEqualTo(28.0);
     }
 
     // ===================================================================
