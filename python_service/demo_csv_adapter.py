@@ -1,5 +1,6 @@
 """Optional course CSV preview on the maintained demo; no app or model starts."""
-from .course_csv import preview_csv, CsvPreviewError
+from .course_csv import CsvPreviewError
+from .course_quality import preview_quality
 
 PATH = '/api/system/course-csv-preview'
 
@@ -17,7 +18,7 @@ def serve_course_csv(handler, parsed, *, write=False, trace=''):
     # Existing maintained public JSON parser supplies the fixed 32768-byte cap,
     # unique framing/JSON keys and nonfinite rejection before this pure module.
     payload = handler.read_course_csv_json()
-    handler.reply(preview_csv(payload))
+    handler.reply(preview_quality(payload))
     return True
 
 
@@ -70,9 +71,25 @@ $('course-csv-form').addEventListener('submit',async event=>{
     for(const table of courseCsvTables){const errors=body.issues.filter(item=>item.table===table&&item.severity==='ERROR');if(errors.length){$('course-csv-'+table).setAttribute('aria-invalid','true');$('course-csv-'+table+'-error').textContent=errors.map(item=>`第${item.row}行 ${item.field}：${item.code}`).join('；');}}
     const issues=body.issues.map(item=>`<tr><td><a href="#course-csv-${escapeHtml(item.table)}">${escapeHtml(item.table)} 第${item.row}行</a></td><td>${escapeHtml(item.field)}</td><td>${escapeHtml(item.severity)} · ${escapeHtml(item.code)}</td></tr>`).join('');
     const subjects=body.subjects.map(item=>`<tr><td>${escapeHtml(item.subjectCode)}</td><td>${escapeHtml(item.qualityStatus)}</td><td>${escapeHtml(item.indexDate??'未知')}</td><td>${escapeHtml([...item.blockingReasons,...item.warningCodes].join('；')||'字段齐全，仍不代表临床有效')}</td></tr>`).join('');
-    $('course-csv-result').innerHTML=(issues?`<div class="table-scroll" tabindex="0" role="region" aria-label="三表错误行与告警"><table><thead><tr><th>表与CSV物理行</th><th>字段</th><th>问题代码</th></tr></thead><tbody>${issues}</tbody></table></div>`:'')+(body.issuesTruncated?'<p>问题较多，仅显示前200项；完整错误总数见上方。请修正后重新预检。</p>':'')+(subjects?`<div class="table-scroll" tabindex="0" role="region" aria-label="档案质量门槛"><table><thead><tr><th>合成档案</th><th>质量状态</th><th>索引访视日</th><th>原因/缺失</th></tr></thead><tbody>${subjects}</tbody></table></div>`:'')+`<p class="help">预检规则 ${escapeHtml(body.previewRuleVersion)} / 质量规则 ${escapeHtml(body.qualityRuleVersion)}。BLOCKED没有可用预测；PASS只表示当前规则未阻断。来源时间仅按CSV声明检查，未认证历史可获得性。</p>`;
+    const qualityHtml=renderCourseQuality(body);
+    $('course-csv-result').innerHTML=(issues?`<div class="table-scroll" tabindex="0" role="region" aria-label="三表错误行与告警"><table><thead><tr><th>表与CSV物理行</th><th>字段</th><th>问题代码</th></tr></thead><tbody>${issues}</tbody></table></div>`:'')+(body.issuesTruncated?'<p>问题较多，仅显示前200项；完整错误总数见上方。请修正后重新预检。</p>':'')+(subjects?`<div class="table-scroll" tabindex="0" role="region" aria-label="档案质量门槛"><table><thead><tr><th>合成档案</th><th>质量状态</th><th>索引访视日</th><th>原因/缺失</th></tr></thead><tbody>${subjects}</tbody></table></div>`:'')+`<p class="help">预检规则 ${escapeHtml(body.previewRuleVersion)} / 质量规则 ${escapeHtml(body.qualityRuleVersion)}。BLOCKED没有可用预测；PASS只表示当前规则未阻断。来源时间仅按CSV声明检查，未认证历史可获得性。</p>`+qualityHtml;
     if(invalid)$('course-csv-summary').focus();
-  }catch{if(request===courseCsvRequest){$('course-csv-summary').textContent='预检请求未通过或服务暂不可用。请检查合成声明、版本、三表总计不超过30000 UTF-8字节；修改后重试。没有导入或生成预测。';$('course-csv-summary').focus();}}
+  }catch{if(request===courseCsvRequest){$('course-csv-result').replaceChildren();$('course-csv-summary').textContent='预检请求未通过或服务暂不可用。请检查合成声明、版本、三表总计不超过30000 UTF-8字节；修改后重试。没有导入或生成预测。';$('course-csv-summary').focus();}}
   finally{button.disabled=false;}
 });
+function renderCourseQuality(body){
+  const report=body.qualityReport;
+  if(!report||report.scope!=='COURSE_SYNTHETIC_QUALITY_REVIEW'||report.reportVersion!=='course-quality-review-v1'||report.requestDigest!==body.requestDigest||report.modelExecuted!==false||report.persisted!==false||report.predictionProduced!==false||report.historicalAvailabilityVerified!==false||report.sourceAuthenticityVerified!==false)throw new Error('QUALITY_REVIEW_SCOPE');
+  const state={OBSERVED:'已观测',MISSING:'缺失',AMBIGUOUS:'同日歧义',NO_VISIT:'没有访视'};
+  const table=(label,heads,rows)=>`<div class="table-scroll" tabindex="0" role="region" aria-label="${label}"><table><thead><tr>${heads.map(x=>`<th>${escapeHtml(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const refs=items=>items.map(x=>`<a href="#course-csv-${escapeHtml(x.table)}">${escapeHtml(x.table)} 第${escapeHtml(x.row)}行 ${escapeHtml(x.field)}</a>`).join('；');
+  const fields=report.fields.map(x=>`<tr><td>${escapeHtml(x.table)} / ${escapeHtml(x.field)}<br>${escapeHtml(x.label)}</td><td>${escapeHtml(x.unit??'按字段规则')}${x.minimum===null?'':`；[${escapeHtml(x.minimum)}, ${escapeHtml(x.maximum)}]`}</td><td>${escapeHtml(x.rule)}</td></tr>`).join('');
+  const subjects=report.subjects.map(x=>{
+    const cognition=x.cognition.map(c=>`<tr><td>${escapeHtml(c.field)}</td><td>${escapeHtml(c.observedCount)} / ${escapeHtml(c.missingCount)} / ${escapeHtml(c.zeroCount)}</td><td>${escapeHtml(state[c.indexState]??'未知')}</td></tr>`).join('');
+    const features=x.featureCoverage.map(f=>`<tr><td>${escapeHtml(f.featureName)}<br>${escapeHtml(f.unit)}</td><td>${escapeHtml(f.observedCount)} / ${escapeHtml(f.missingCount)} / ${escapeHtml(f.zeroCount)}</td><td>${escapeHtml(f.postIndexRows)} / ${escapeHtml(f.unplacedRows)}</td><td>${escapeHtml(f.selectedDate??'无唯一可用来源日')}<br>${refs(f.selectedSources)}</td><td>${escapeHtml(f.repeatedRows)} / ${escapeHtml(f.conflictingDays)}</td></tr>`).join('');
+    const decisions=x.decisions.map(d=>`<li><strong>${escapeHtml(d.severity)} · ${escapeHtml(d.code)}</strong>：${escapeHtml(d.message)}${d.sources.length?`<br>${refs(d.sources)}`:''}${d.sourcesTruncated?`；另有来源，合计${escapeHtml(d.sourceCount)}处`:''}</li>`).join('');
+    return `<details><summary>${escapeHtml(x.subjectCode)} · ${escapeHtml(x.qualityStatus)} · ${escapeHtml(x.visitCount)}次访视</summary><p>声明观测跨度：${x.spanDays===null?'未知':escapeHtml(x.spanDays)+'天'}；同日多访视日期数：${escapeHtml(x.sameDayVisitGroups)}。没有补值或生成预测。</p>${table('认知项覆盖与缺失',['字段','已观测 / 缺失 / 其中零值','索引日状态'],cognition)}${table('特征来源与时间检查',['字段与单位','已观测 / 缺失 / 其中零值','索引日后 / 无索引日无法定位','规则可用来源日与物理行','重复行 / 冲突日期'],features)}${decisions?`<ul>${decisions}</ul>`:'<p>当前质量规则没有阻断或告警；不代表临床有效。</p>'}</details>`;
+  }).join('');
+  return `<div id="course-quality-review"><h3>质量详情与来源说明</h3><p>零值计入已观测，不是缺失。只展示计数、声明日期与CSV物理行，不回传输入别名或量表/特征值。规则可用来源不表示模型已执行；历史可获得日仍未知。</p>${report.status==='NOT_EVALUATED'?`<p>整批字段或关联校验未通过，不生成档案质量详情。</p><ul>${report.issueGuidance.map(g=>`<li>${escapeHtml(g.code)}：${escapeHtml(g.message)}</li>`).join('')}</ul>`:subjects}<details id="course-quality-dictionary"><summary>查看字段、单位与空值字典</summary>${table('课程三表字段字典',['字段','单位与范围','规则与边界'],fields)}</details></div>`;
+}
 '''
