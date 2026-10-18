@@ -53,6 +53,7 @@ Python 子服务（127.0.0.1:8091）
 | [受控研究客户端](docs/Controlled_Research_Client.md) | 用标准库调用既有本机研究系统的目录、批量任务与结果；不启动另一套服务，不改变课程合成接口 |
 | [合成报告与演示兼容](docs/Synthetic_Reports.md) | 完成任务的研究/教学报告、浏览器打印及同一演示服务的兼容适配；真实患者报告不开放 |
 | [模型状态与校验反馈](docs/Model_And_Task_Feedback.md) | 训练和加载的区别、接口标识用途、预期拒绝与服务故障、正常示例恢复 |
+| [研究基底与后端验收](docs/Research_Backend_Acceptance.md) | 实测访视序列、研究结果内存映射、来源图依赖、跨语言构造案例及性能与用途边界 |
 | [AI 协作指南](docs/AI_Collaboration.md) | 任务拆分、上下文、提示模板、验证和接续工作 |
 | [协作规范](CONTRIBUTING.md) | 分支命名、提交、PR、评审与同步 |
 
