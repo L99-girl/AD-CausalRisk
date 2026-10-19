@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.entity.Subject;
+import com.adcausalrisk.backend.subject.entity.SubjectPermission.PermissionType;
 
 /**
  * Subject-level access control. Role-driven visible-range decisions that sit
@@ -35,11 +36,17 @@ public class SubjectAccessPolicy {
     private static final Set<String> CREATOR_ROLES = Set.of("ADMIN", "RESEARCHER");
 
     /**
-     * Roles allowed to receive raw visit scores (the full {@code visits} array of
-     * {@code SubjectDetail}). Deliberately an allow-list: an unknown or future role must not
-     * inherit access to raw scale scores by accident.
+     * Roles allowed to receive raw visit scores with no per-subject check.
+     *
+     * <p>{@code DOCTOR} is deliberately <b>not</b> here: a doctor needs {@code VIEW} or
+     * {@code MANAGE} on the specific subject, because {@code SUMMARY_READ} must not be upgraded
+     * into a full read.
      */
-    private static final Set<String> RAW_SCORE_ROLES = Set.of("ADMIN", "RESEARCHER", "DOCTOR");
+    private static final Set<String> RAW_SCORE_ROLES = Set.of("ADMIN", "RESEARCHER");
+
+    /** Permission types on a subject that entitle a DOCTOR to raw scale scores. */
+    private static final Set<PermissionType> RAW_SCORE_PERMISSION_TYPES =
+            Set.of(PermissionType.VIEW, PermissionType.MANAGE);
 
     private final SubjectPermissionRepository permissionRepository;
 
@@ -84,20 +91,42 @@ public class SubjectAccessPolicy {
     }
 
     /**
-     * Whether the principal may receive raw visit scores - the {@code visits} array of
-     * {@code SubjectDetail}, which carries {@code mmse}, {@code moca} and {@code cdrSb}.
+     * Whether the principal may receive raw visit scores for <i>this</i> subject - the
+     * {@code visits} array of {@code SubjectDetail}, which carries {@code mmse}, {@code moca}
+     * and {@code cdrSb}.
      *
-     * <p>This is a different question from {@link #canView}: that one answers "may this caller
-     * see the subject at all", and a PATIENT holding {@code SUMMARY_READ} answers yes. That
-     * grant is for the patient-facing summary, not for raw scale scores, so a PATIENT may read
-     * the subject while receiving an empty {@code visits} array.
+     * <p>This is a different question from {@link #canView}, which only answers "may this caller
+     * see the subject at all". A {@code SUMMARY_READ} grant is for the patient-facing summary and
+     * must not be upgraded into a full read, so the decision is per role and, for doctors,
+     * per subject:
      *
-     * <p>An allow-list rather than a "deny PATIENT" check, so an unknown or future role is
-     * refused by default. Multi-role accounts follow the same "most permissive tier wins" rule
-     * as {@link #hasFullVisibility}: a DOCTOR who also holds PATIENT still sees the scores.
+     * <ul>
+     *     <li>{@code ADMIN} / {@code RESEARCHER}: always allowed.</li>
+     *     <li>{@code DOCTOR}: allowed only when the doctor holds {@code VIEW} or {@code MANAGE}
+     *         on this subject. A doctor holding only {@code SUMMARY_READ} is refused, which is
+     *         the privilege-escalation this method exists to prevent.</li>
+     *     <li>{@code PATIENT}: refused, always.</li>
+     * </ul>
+     *
+     * <p>{@code PATIENT} is checked <b>first</b> and wins over every other role: an account that
+     * carries PATIENT alongside RESEARCHER or ADMIN still receives no raw scale scores. Every
+     * other multi-role combination takes the most permissive applicable branch, so DOCTOR
+     * combined with PATIENT still needs VIEW or MANAGE on the subject.
      */
-    public boolean canReadRawScores(AppUserPrincipal principal) {
-        return principal.roleCodes().stream().anyMatch(RAW_SCORE_ROLES::contains);
+    public boolean canReadRawScores(AppUserPrincipal principal, Long subjectId) {
+        // Checked before anything else on purpose: a patient-facing response must never carry
+        // raw scale scores, even when the same account also holds a clinician or research role.
+        if (principal.roleCodes().contains("PATIENT")) {
+            return false;
+        }
+        if (principal.roleCodes().stream().anyMatch(RAW_SCORE_ROLES::contains)) {
+            return true;
+        }
+        if (!principal.roleCodes().contains("DOCTOR")) {
+            return false;
+        }
+        return permissionRepository.findPermissionTypes(subjectId, principal.userId()).stream()
+                .anyMatch(RAW_SCORE_PERMISSION_TYPES::contains);
     }
 
     /**

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -19,6 +20,7 @@ import com.adcausalrisk.backend.subject.entity.SubjectPermission;
 import com.adcausalrisk.backend.subject.entity.SubjectPermission.PermissionType;
 import com.adcausalrisk.backend.user.SysUser;
 import com.adcausalrisk.backend.user.SysUserRepository;
+import com.adcausalrisk.backend.visit.entity.Visit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -80,6 +82,9 @@ class VisitApiTest {
 
     @Autowired
     private SysUserRepository sysUserRepository;
+
+    @Autowired
+    private VisitRepository visitRepository;
 
     // ===================================================================
     // 1. POST /api/subjects/{subjectId}/visits - happy path
@@ -257,9 +262,10 @@ class VisitApiTest {
                 .andExpect(status().isOk())
                 .andReturn());
 
-        // DECIMAL(4,1) round-trips 0.5 exactly through BigDecimal -> Double -> JSON.
+        // DECIMAL(5,2) round-trips 0.5 exactly; the column reports it as 0.50, so the value is
+        // compared numerically rather than as a raw string.
         assertThat(body.get("data").get("cdrSb").asDouble()).isEqualTo(0.5);
-        assertThat(body.get("data").get("cdrSb").asText()).isEqualTo("0.5");
+        assertThat(body.get("data").get("cdrSb").decimalValue()).isEqualByComparingTo(new BigDecimal("0.5"));
     }
 
     @Test
@@ -277,34 +283,64 @@ class VisitApiTest {
 
     /**
      * The contract accepts any precision (a plain {@code number} with only a min/max), so 27.55
-     * must be accepted. {@code DECIMAL(4,1)} cannot hold it, so it is rounded HALF_UP at the
-     * storage boundary, and both the create response and the value read back from the database
-     * report 27.6.
+     * must be accepted <em>and stored exactly</em>. Migration {@code V3} widened the score
+     * columns to {@code DECIMAL(5,2)} and {@code VisitMapper} performs no rounding, so the
+     * original observation survives the round trip.
      *
-     * <p>25.44 is included because it rounds <em>down</em>: together with 27.55 it proves the
-     * value is rounded rather than merely truncated (truncation would give 27.5).
+     * <p>With the previous {@code DECIMAL(4,1)} plus a HALF_UP rounding step the same request
+     * came back as 27.6, which silently destroyed the observation that later scoring depends on.
      */
     @Test
-    void scoreWithMoreThanOneDecimalIsAcceptedAndRoundedToOneDecimal() throws Exception {
+    void scoreWithMoreThanOneDecimalIsStoredWithoutLoss() throws Exception {
         MockHttpSession admin = login("admin");
-        Subject subject = seedSubject("DEMO-V-SCALE-ROUND");
+        Subject subject = seedSubject("DEMO-V-SCALE-EXACT");
 
         JsonNode created = bodyOf(mockMvc.perform(
                         createVisit(subject.getId(), "BL", "2025-01-01", 27.55, 25.44, 0.55).session(admin))
                 .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(created.get("data").get("mmse").asDouble()).isEqualTo(27.6);
-        assertThat(created.get("data").get("mmse").asText()).isEqualTo("27.6");
-        assertThat(created.get("data").get("moca").asDouble()).isEqualTo(25.4);
-        assertThat(created.get("data").get("cdrSb").asDouble()).isEqualTo(0.6);
+        assertThat(created.get("data").get("mmse").asText()).isEqualTo("27.55");
+        assertThat(created.get("data").get("moca").asText()).isEqualTo("25.44");
+        assertThat(created.get("data").get("cdrSb").asText()).isEqualTo("0.55");
         assertThat(ContractSchemas.validateResponse(created, VISITS_PATH, "post", 200)).isEmpty();
 
-        // What the database now holds, read back through the detail endpoint.
+        // Read back through the API ...
         JsonNode stored = firstVisitOfDetail(subject.getId(), admin);
-        assertThat(stored.get("mmse").asDouble()).isEqualTo(27.6);
-        assertThat(stored.get("moca").asDouble()).isEqualTo(25.4);
-        assertThat(stored.get("cdrSb").asDouble()).isEqualTo(0.6);
+        assertThat(stored.get("mmse").asText()).isEqualTo("27.55");
+        assertThat(stored.get("moca").asText()).isEqualTo("25.44");
+        assertThat(stored.get("cdrSb").asText()).isEqualTo("0.55");
+
+        // ... and at entity level, which is the value a future AgentClient would hand to the
+        // scoring workflow. Compared without regard to scale, because the column fixes it.
+        Visit entity = visitRepository.findById(created.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("27.55"));
+        assertThat(entity.getMoca()).isEqualByComparingTo(new BigDecimal("25.44"));
+        assertThat(entity.getCdrSb()).isEqualByComparingTo(new BigDecimal("0.55"));
+    }
+
+    /**
+     * A score with more than two decimals cannot be stored in {@code DECIMAL(5,2)}: the database
+     * rounds it. The response must report the value the database holds, not the submitted one,
+     * otherwise POST and a later GET would disagree about the same visit - which is why the
+     * service refreshes the entity it just wrote.
+     */
+    @Test
+    void scoreBeyondTheColumnScaleIsReportedAsStored() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-SCALE-BOUND");
+
+        JsonNode created = bodyOf(mockMvc.perform(
+                        createVisit(subject.getId(), "BL", "2025-01-01", 27.555, null, null).session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(created.get("data").get("mmse").asText()).isEqualTo("27.56");
+        assertThat(ContractSchemas.validateResponse(created, VISITS_PATH, "post", 200)).isEmpty();
+
+        // The follow-up read must agree with what POST reported.
+        JsonNode stored = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(stored.get("mmse").asText()).isEqualTo("27.56");
     }
 
     // ===================================================================

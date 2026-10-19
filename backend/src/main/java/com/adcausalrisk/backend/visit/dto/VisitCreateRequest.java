@@ -31,10 +31,10 @@ import jakarta.validation.constraints.Size;
  *       {@link BigDecimal}.</li>
  *   <li>Precision is deliberately <b>not</b> constrained here. The contract declares a plain
  *       {@code number} with only a min/max range, so rejecting a value such as {@code 27.55}
- *       would refuse a contract-valid request. The {@code DECIMAL(4,1)} column is handled at the
- *       storage boundary instead: {@code VisitMapper} rounds to one decimal with
- *       {@code RoundingMode.HALF_UP} before saving, so the response always reports the value the
- *       database actually holds.</li>
+ *       would refuse a contract-valid request. The value is stored exactly as submitted:
+ *       migration {@code V3} widened the column to {@code DECIMAL(5,2)} and
+ *       {@code VisitMapper} performs no rounding, so a later read - and the value handed to the
+ *       scoring workflow - recovers the original observation.</li>
  * </ul>
  *
  * <p>The three scores are optional. Omitting one stores {@code NULL} and the response reports

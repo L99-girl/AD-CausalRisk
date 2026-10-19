@@ -63,12 +63,47 @@ class SchemaMigrationTest {
     private DataSource dataSource;
 
     @Test
-    void flywayAppliedBothMigrations() {
+    void flywayAppliedAllMigrations() {
         List<String> versions = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2");
+        assertThat(versions).containsExactly("1", "2", "3");
+    }
+
+    /**
+     * V3 widens the three score columns to {@code DECIMAL(5,2)}. Nothing else in the suite looks
+     * at the column type, so without this check a V3 that silently became a no-op on some engine
+     * would leave every other test green while the original precision bug came back.
+     */
+    @Test
+    void visitScoreColumnsKeepTwoDecimals() throws SQLException {
+        for (String columnName : List.of("mmse", "moca", "cdr_sb")) {
+            ColumnShape shape = columnShape("visit", columnName);
+
+            assertThat(shape.precision()).as("%s precision", columnName).isEqualTo(5);
+            assertThat(shape.scale()).as("%s scale", columnName).isEqualTo(2);
+        }
+    }
+
+    /** Precision (COLUMN_SIZE) and scale (DECIMAL_DIGITS) of one column. */
+    private record ColumnShape(int precision, int scale) {
+    }
+
+    private ColumnShape columnShape(String tableName, String columnName) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             ResultSet columns = connection.getMetaData()
+                     .getColumns(connection.getCatalog(), null, "%", "%")) {
+            while (columns.next()) {
+                String table = columns.getString("TABLE_NAME").toLowerCase(Locale.ROOT);
+                String column = columns.getString("COLUMN_NAME").toLowerCase(Locale.ROOT);
+                if (tableName.equals(table) && columnName.equals(column)) {
+                    return new ColumnShape(
+                            columns.getInt("COLUMN_SIZE"), columns.getInt("DECIMAL_DIGITS"));
+                }
+            }
+        }
+        throw new IllegalStateException("column not found: " + tableName + "." + columnName);
     }
 
     @Test

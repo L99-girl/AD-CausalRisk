@@ -139,11 +139,12 @@ public class SubjectService {
      * still an empty array because the feature write endpoint has not been implemented - the
      * contract requires both keys to be present (not null, not omitted).
      *
-     * <p><b>Raw scores are filtered by role.</b> A PATIENT may legitimately read the subject
-     * (for example through a {@code SUMMARY_READ} grant), but raw scale scores belong to the
-     * clinician-facing detail only, so {@code visits} is always an empty array unless
-     * {@link SubjectAccessPolicy#canReadRawScores} allows the caller. The rule lives in the
-     * policy class so that every future caller of that flag agrees with this one.
+     * <p><b>Raw scores are filtered per role and per subject.</b> A caller may legitimately read
+     * the subject - a PATIENT, or a DOCTOR, holding only {@code SUMMARY_READ} - but raw scale
+     * scores belong to the clinician-facing detail only: {@code visits} is an empty array unless
+     * {@link SubjectAccessPolicy#canReadRawScores} allows <i>this</i> caller on <i>this</i>
+     * subject. The rule lives in the policy class so that every future caller of that flag
+     * agrees with this one.
      */
     @Transactional(readOnly = true)
     public SubjectDetailView getSubjectDetail(Long subjectId, AppUserPrincipal principal) {
@@ -156,14 +157,15 @@ public class SubjectService {
         }
 
         // Permission is checked before the visit query, so an unauthorised caller never even
-        // touches the visit table. Raw scores are a second, separate decision: a PATIENT with
-        // SUMMARY_READ may read the subject, but must not receive raw scale scores, so the
-        // array is empty and the query is skipped entirely rather than filtered afterwards.
+        // touches the visit table. Raw scores are a second, separate decision, taken per role and
+        // per subject: SUMMARY_READ (a PATIENT, or a DOCTOR who holds nothing more on this
+        // subject) grants the summary only, so the array is empty and the query is skipped
+        // entirely rather than filtered afterwards.
         //
         // NOTE for the feature endpoint (not implemented yet): when SubjectDetail.features
         // starts returning values, it must be gated by the same canReadRawScores check,
         // otherwise the identical leak reappears through featureValue.
-        List<VisitResultView> visits = accessPolicy.canReadRawScores(principal)
+        List<VisitResultView> visits = accessPolicy.canReadRawScores(principal, subjectId)
                 ? visitRepository
                         .findBySubjectIdOrderByVisitDateAscIdAsc(subjectId)
                         .stream()

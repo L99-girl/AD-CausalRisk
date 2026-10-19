@@ -15,6 +15,8 @@ import com.adcausalrisk.backend.subject.dto.VisitResultView;
 import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
 import com.adcausalrisk.backend.visit.entity.Visit;
 
+import jakarta.persistence.EntityManager;
+
 /**
  * Business logic for the single visit operation of the frozen contract,
  * {@code POST /api/subjects/{subjectId}/visits}.
@@ -37,12 +39,16 @@ public class VisitService {
 
     private final SubjectAccessPolicy accessPolicy;
 
+    private final EntityManager entityManager;
+
     public VisitService(VisitRepository visitRepository,
                         SubjectRepository subjectRepository,
-                        SubjectAccessPolicy accessPolicy) {
+                        SubjectAccessPolicy accessPolicy,
+                        EntityManager entityManager) {
         this.visitRepository = visitRepository;
         this.subjectRepository = subjectRepository;
         this.accessPolicy = accessPolicy;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -81,17 +87,28 @@ public class VisitService {
         }
 
         try {
-            Visit saved = visitRepository.save(VisitMapper.toEntity(subjectId, request));
+            // saveAndFlush keeps the INSERT inside this try block. With an IDENTITY id the insert
+            // already happens at save() time, but that is an implementation detail of the id
+            // strategy; flushing explicitly means a constraint violation is caught here instead
+            // of escaping at commit as a 500.
+            Visit saved = visitRepository.saveAndFlush(VisitMapper.toEntity(subjectId, request));
+
+            // The response must report what the database actually stored. DECIMAL(5,2) rounds a
+            // score that carries more than two decimals, and Hibernate does not copy the stored
+            // value back into the entity - a plain findById would hand back the same cached
+            // instance and report the unrounded number, so POST and a later GET would disagree.
+            // Refreshing re-reads the row that was just written.
+            entityManager.refresh(saved);
             return VisitMapper.toResultView(saved);
         } catch (DataIntegrityViolationException exception) {
-            // Backstop for the window between the duplicate check above and the insert, and
-            // for engine-specific key comparison (MySQL's default collation is
-            // case-insensitive, so 'BL' and 'bl' are the same key there). The DDL constraint
-            // uq_visit_subject_code still holds; this only decides the HTTP answer the caller
-            // gets - 400, never a 500.
+            // Any integrity violation can land here, not only a duplicate visit code: the subject
+            // may have been deleted between the check above and this insert (fk_visit_subject),
+            // and a CHECK constraint could fire too. The message therefore must not claim which
+            // constraint failed. The DDL constraint is the source of truth; this only decides
+            // that the caller gets 400 rather than 500.
             log.debug("visit insert rejected by a database constraint", exception);
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "visitCode 已存在: " + request.visitCode());
+                    "无法保存访视：档案可能已被删除，或 visitCode 已存在");
         }
     }
 }

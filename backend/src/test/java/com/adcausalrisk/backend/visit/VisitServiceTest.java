@@ -22,6 +22,8 @@ import com.adcausalrisk.backend.visit.entity.Visit;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import jakarta.persistence.EntityManager;
+
 /**
  * Pure Mockito unit tests (no Spring context, no database) for the one branch of
  * {@link VisitService} that cannot be reached deterministically through the API: the
@@ -57,14 +59,17 @@ class VisitServiceTest {
 
         given(subjectRepository.existsById(SUBJECT_ID)).willReturn(true);
         given(visitRepository.existsBySubjectIdAndVisitCode(SUBJECT_ID, VISIT_CODE)).willReturn(false);
-        given(visitRepository.save(any(Visit.class)))
+        given(visitRepository.saveAndFlush(any(Visit.class)))
                 .willThrow(new DataIntegrityViolationException("uq_visit_subject_code"));
 
-        VisitService service = new VisitService(visitRepository, subjectRepository, accessPolicy);
+        VisitService service = new VisitService(
+                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, REQUEST, ADMIN))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("visitCode 已存在")
+                // The message is deliberately neutral: any integrity violation lands here, not
+                // only a duplicate visit code.
+                .hasMessageContaining("无法保存访视")
                 .satisfies(thrown -> {
                     ErrorCode errorCode = ((BusinessException) thrown).errorCode();
                     assertThat(errorCode).isEqualTo(ErrorCode.VALIDATION_ERROR);

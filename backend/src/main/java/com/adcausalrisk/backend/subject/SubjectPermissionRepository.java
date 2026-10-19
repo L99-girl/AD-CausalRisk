@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.adcausalrisk.backend.subject.entity.SubjectPermission;
+import com.adcausalrisk.backend.subject.entity.SubjectPermission.PermissionType;
 
 /**
  * Data access for the {@code subject_permission} table.
@@ -32,4 +33,22 @@ public interface SubjectPermissionRepository extends JpaRepository<SubjectPermis
      */
     @Query("SELECT DISTINCT sp.subjectId FROM SubjectPermission sp WHERE sp.userId = :userId")
     List<Long> findDistinctSubjectIdByUserId(@Param("userId") Long userId);
+
+    /**
+     * The permission types the given user holds on one subject.
+     *
+     * <p>Needed by {@code SubjectAccessPolicy.canReadRawScores} to tell {@code VIEW} /
+     * {@code MANAGE} (raw scale scores allowed) apart from {@code SUMMARY_READ} (summary only).
+     * The old helper collapses every type into a subject id, which is exactly the information
+     * this decision needs.
+     *
+     * <p>An explicit {@code @Query} for the same Hibernate 6 scalar-projection reason as
+     * {@link #findDistinctSubjectIdByUserId}.
+     */
+    @Query("""
+            SELECT sp.permissionType FROM SubjectPermission sp
+            WHERE sp.subjectId = :subjectId AND sp.userId = :userId
+            """)
+    List<PermissionType> findPermissionTypes(@Param("subjectId") Long subjectId,
+                                             @Param("userId") Long userId);
 }

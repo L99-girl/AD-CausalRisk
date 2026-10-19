@@ -14,8 +14,9 @@ import jakarta.persistence.Table;
  * A single visit from the {@code visit} table.
  *
  * <p>The three scores are {@link BigDecimal} on purpose: the DDL declares
- * {@code DECIMAL(4,1)} and {@code ddl-auto: validate} compares the mapped type against the
- * column type, so a {@code Double} field would abort startup validation.
+ * {@code DECIMAL(5,2)} (widened by migration {@code V3}) and {@code ddl-auto: validate}
+ * compares the mapped type against the column type, so a {@code Double} field would abort
+ * startup validation.
  *
  * <p>There is no {@code @ManyToOne} to {@code Subject}. A visit row never needs to navigate
  * to the subject, and the subject module models its own foreign keys the same way
@@ -45,14 +46,18 @@ public class Visit {
     @Column(name = "visit_date", nullable = false)
     private LocalDate visitDate;
 
-    /** {@code precision}/{@code scale} mirror the DDL so this entity documents the schema. */
-    @Column(name = "mmse", precision = 4, scale = 1)
+    /**
+     * {@code precision}/{@code scale} mirror the DDL so this entity documents the schema.
+     * {@code DECIMAL(5,2)} comes from migration {@code V3}; V1 declared {@code (4,1)}, which
+     * rounded away the second decimal.
+     */
+    @Column(name = "mmse", precision = 5, scale = 2)
     private BigDecimal mmse;
 
-    @Column(name = "moca", precision = 4, scale = 1)
+    @Column(name = "moca", precision = 5, scale = 2)
     private BigDecimal moca;
 
-    @Column(name = "cdr_sb", precision = 4, scale = 1)
+    @Column(name = "cdr_sb", precision = 5, scale = 2)
     private BigDecimal cdrSb;
 
     protected Visit() {

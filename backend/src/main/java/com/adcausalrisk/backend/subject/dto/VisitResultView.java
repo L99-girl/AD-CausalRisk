@@ -1,5 +1,6 @@
 package com.adcausalrisk.backend.subject.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
@@ -12,19 +13,18 @@ import java.time.LocalDate;
  * moca (number|null), cdrSb (number|null)</pre>
  *
  * <p>Populated by {@code POST /api/subjects/{subjectId}/visits}, which persists the row,
- * and read back through {@code SubjectDetail.visits}. The scores are {@code Double} here
- * while the {@code Visit} entity stores {@link java.math.BigDecimal} - required by
- * {@code ddl-auto: validate} against the DDL's {@code DECIMAL(4,1)} - so
- * {@code VisitMapper} performs the conversion. A score that was never recorded stays
- * {@code null} and is never reported as 0.
+ * and read back through {@code SubjectDetail.visits}. The scores are {@link BigDecimal},
+ * the same type the entity stores, so no lossy {@code double} conversion happens anywhere on
+ * the way out; the JSON shape is unchanged because the contract only says {@code number}.
+ * A score that was never recorded stays {@code null} and is never reported as 0.
  */
 public record VisitResultView(
         Long id,
         Long subjectId,
         String visitCode,
         LocalDate visitDate,
-        Double mmse,
-        Double moca,
-        Double cdrSb
+        BigDecimal mmse,
+        BigDecimal moca,
+        BigDecimal cdrSb
 ) {
 }

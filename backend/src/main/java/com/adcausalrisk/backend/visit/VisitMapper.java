@@ -1,8 +1,5 @@
 package com.adcausalrisk.backend.visit;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-
 import com.adcausalrisk.backend.subject.dto.VisitResultView;
 import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
 import com.adcausalrisk.backend.visit.entity.Visit;
@@ -22,41 +19,30 @@ public final class VisitMapper {
      * Builds a fresh entity for one subject. {@code id} is owned by the database, and
      * {@code subjectId} comes from the request path rather than the body.
      *
-     * <p>Scores are rounded to the scale the DDL can store ({@code DECIMAL(4,1)}) here, at the
-     * single boundary between the API and persistence. The contract accepts any precision, so
-     * this is where a submitted value becomes storable; because {@code save} returns this entity
-     * and later reads come from the same row, the response always reports exactly what was
-     * stored.
-     *
-     * <p>Range validation runs on the submitted value (Bean Validation, before this method), so
-     * a value just below the minimum can never be rounded up into the valid range.
+     * <p>Scores are passed through <b>unchanged</b>. They are deliberately not rounded or
+     * truncated here: the original observation must survive, because later scoring, reads and
+     * the value handed to the scoring workflow all depend on recovering exactly what was
+     * submitted. The column type ({@code DECIMAL(5,2)}, widened by migration {@code V3}) is what
+     * keeps the value, and Bean Validation has already rejected anything outside the permitted
+     * range.
      */
     public static Visit toEntity(Long subjectId, VisitCreateRequest request) {
         return new Visit(
                 subjectId,
                 request.visitCode(),
                 request.visitDate(),
-                toStorageScale(request.mmse()),
-                toStorageScale(request.moca()),
-                toStorageScale(request.cdrSb()));
-    }
-
-    /**
-     * Rounds a submitted score to one decimal ({@code HALF_UP}), matching {@code DECIMAL(4,1)}.
-     * {@code null} stays {@code null}: a score that was not recorded is never turned into 0.
-     */
-    private static BigDecimal toStorageScale(BigDecimal value) {
-        return value == null ? null : value.setScale(1, RoundingMode.HALF_UP);
+                request.mmse(),
+                request.moca(),
+                request.cdrSb());
     }
 
     /**
      * Maps a {@link Visit} to the contract's {@code VisitResult} shape, which is also the
      * element type of {@code SubjectDetail.visits}.
      *
-     * <p>The entity keeps the scores as {@link BigDecimal} (required by
-     * {@code ddl-auto: validate} against {@code DECIMAL(4,1)}) while
-     * {@link VisitResultView} exposes them as {@code Double}; the conversion happens here.
-     * A {@code NULL} score stays JSON null - it is never reported as 0.
+     * <p>Scores are passed through as {@link java.math.BigDecimal}, the type the entity stores,
+     * so no {@code double} conversion can lose precision on the way out. A {@code NULL} score
+     * stays JSON null - it is never reported as 0.
      */
     public static VisitResultView toResultView(Visit visit) {
         return new VisitResultView(
@@ -64,12 +50,8 @@ public final class VisitMapper {
                 visit.getSubjectId(),
                 visit.getVisitCode(),
                 visit.getVisitDate(),
-                toDouble(visit.getMmse()),
-                toDouble(visit.getMoca()),
-                toDouble(visit.getCdrSb()));
-    }
-
-    private static Double toDouble(BigDecimal value) {
-        return value == null ? null : value.doubleValue();
+                visit.getMmse(),
+                visit.getMoca(),
+                visit.getCdrSb());
     }
 }

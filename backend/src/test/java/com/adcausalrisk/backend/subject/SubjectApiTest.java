@@ -29,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.test.context.ActiveProfiles;
@@ -75,6 +76,9 @@ class SubjectApiTest {
 
     @Autowired
     private VisitRepository visitRepository;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     // ===================================================================
     // 1. POST /api/subjects - create
@@ -433,6 +437,145 @@ class SubjectApiTest {
                 .andReturn());
         assertThat(asAdmin.get("data").get("visits").size()).isEqualTo(1);
         assertThat(asAdmin.get("data").get("visits").get(0).get("mmse").asDouble()).isEqualTo(28.0);
+    }
+
+    /**
+     * A DOCTOR holding only {@code SUMMARY_READ} on this subject may read the summary, but not
+     * raw scale scores. This is the escalation the per-subject check prevents: the grant is for
+     * the summary, so it must not be upgraded into a full read.
+     */
+    @Test
+    void doctorWithOnlySummaryReadCannotSeeRawVisitScores() throws Exception {
+        MockHttpSession admin = login("admin");
+        MockHttpSession doctor = login("doctor");
+        Subject subject = seedSubjectWithCode("DEMO-DOCTOR-SUMMARY");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+        grantPermission(subject.getId(), "doctor", PermissionType.SUMMARY_READ);
+
+        JsonNode asDoctor = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(doctor))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(asDoctor.get("data").get("subject").get("id").asLong()).isEqualTo(subject.getId());
+        assertThat(asDoctor.get("data").get("visits").size())
+                .as("SUMMARY_READ must not expose raw scale scores")
+                .isZero();
+
+        // Control: the same subject and the same visit, read by a role that may see scores.
+        JsonNode asAdmin = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(asAdmin.get("data").get("visits").size()).isEqualTo(1);
+    }
+
+    @Test
+    void doctorWithViewSeesRawVisitScores() throws Exception {
+        MockHttpSession doctor = login("doctor");
+        Subject subject = seedSubjectWithCode("DEMO-DOCTOR-VIEW");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+        grantPermission(subject.getId(), "doctor", PermissionType.VIEW);
+
+        JsonNode body = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId()).session(doctor))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(body.get("data").get("visits").size()).isEqualTo(1);
+        assertThat(body.get("data").get("visits").get(0).get("mmse").asDouble()).isEqualTo(28.0);
+    }
+
+    @Test
+    void doctorWithManageSeesRawVisitScores() throws Exception {
+        MockHttpSession doctor = login("doctor");
+        Subject subject = seedSubjectWithCode("DEMO-DOCTOR-MANAGE");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+        grantPermission(subject.getId(), "doctor", PermissionType.MANAGE);
+
+        JsonNode body = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId()).session(doctor))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(body.get("data").get("visits").size()).isEqualTo(1);
+    }
+
+    /**
+     * A PATIENT role must win over every other role: an account that is both a patient and a
+     * researcher still receives no raw scale scores. The extra account is created through JDBC
+     * because {@code SysUser} deliberately exposes no way to attach roles.
+     */
+    @Test
+    void patientWhoIsAlsoResearcherCannotSeeRawVisitScores() throws Exception {
+        MockHttpSession admin = login("admin");
+        jdbc.update("""
+                INSERT INTO sys_user (username, password_hash, status, created_at)
+                SELECT ?, password_hash, status, created_at FROM sys_user WHERE username = 'patient'
+                """, "patient_researcher");
+        jdbc.update("""
+                INSERT INTO user_role (user_id, role_id)
+                SELECT u.id, r.id FROM sys_user u, sys_role r
+                WHERE u.username = 'patient_researcher' AND r.role_code = 'PATIENT'
+                """);
+        jdbc.update("""
+                INSERT INTO user_role (user_id, role_id)
+                SELECT u.id, r.id FROM sys_user u, sys_role r
+                WHERE u.username = 'patient_researcher' AND r.role_code = 'RESEARCHER'
+                """);
+
+        Subject subject = seedSubjectWithCode("DEMO-PATIENT-RESEARCHER");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+
+        // RESEARCHER alone would grant full visibility, so no subject_permission row is needed;
+        // the only thing standing between this account and the scores is the PATIENT gate.
+        JsonNode asPatientResearcher = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(login("patient_researcher")))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(asPatientResearcher.get("data").get("subject").get("id").asLong())
+                .isEqualTo(subject.getId());
+        assertThat(asPatientResearcher.get("data").get("visits").size())
+                .as("a PATIENT role wins over RESEARCHER")
+                .isZero();
+
+        // Control: the visit exists and a role allowed to see scores receives it.
+        JsonNode asAdmin = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId()).session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(asAdmin.get("data").get("visits").size()).isEqualTo(1);
+    }
+
+    /**
+     * A PATIENT granted {@code VIEW} instead of {@code SUMMARY_READ} is still refused raw
+     * scores: {@code canView} passes and only the role gate stops the data. Without this test
+     * that gate could be inverted silently.
+     */
+    @Test
+    void patientWithViewPermissionStillCannotSeeRawVisitScores() throws Exception {
+        MockHttpSession admin = login("admin");
+        MockHttpSession patient = login("patient");
+        Subject subject = seedSubjectWithCode("DEMO-PATIENT-VIEW");
+        visitRepository.save(new Visit(subject.getId(), "BL", LocalDate.of(2025, 1, 1),
+                new BigDecimal("28.0"), new BigDecimal("25.0"), new BigDecimal("0.5")));
+        grantPermission(subject.getId(), "patient", PermissionType.VIEW);
+
+        JsonNode asPatient = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId())
+                        .session(patient))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(asPatient.get("data").get("visits").size())
+                .as("PATIENT must not receive raw scores even with VIEW")
+                .isZero();
+
+        JsonNode asAdmin = bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId()).session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(asAdmin.get("data").get("visits").size()).isEqualTo(1);
     }
 
     // ===================================================================
