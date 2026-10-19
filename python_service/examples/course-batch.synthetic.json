@@ -1,0 +1,16 @@
+{
+  "previewInput": {
+    "input_mode": "SYNTHETIC_TEST",
+    "dataVersion": "demo-batch-example",
+    "predictionWindowMonths": 24,
+    "tables": {
+      "subjects": "subjectCode,alias,status\nDEMO-BATCH-1,课程合成例一,ACTIVE\nDEMO-BATCH-2,课程合成例二,ACTIVE\n",
+      "visits": "subjectCode,visitCode,visitDate,mmse,moca,cdrSb\nDEMO-BATCH-1,BL,2025-01-01,28,25,0.5\nDEMO-BATCH-1,M12,2026-01-01,25,22,1.5\nDEMO-BATCH-2,BL,2025-01-01,,,\n",
+      "features": "subjectCode,featureName,featureValue,recordedAt,unit\nDEMO-BATCH-1,APOE_E4_COUNT,1,2025-01-01,count\nDEMO-BATCH-1,MRI_HIPPOCAMPUS_L,0.35,2025-01-01,normalized\nDEMO-BATCH-1,MRI_HIPPOCAMPUS_R,0.36,2025-01-01,normalized\n"
+    }
+  },
+  "runIds": {
+    "DEMO-BATCH-1": "run-batch-example-001",
+    "DEMO-BATCH-2": "run-batch-example-002"
+  }
+}
