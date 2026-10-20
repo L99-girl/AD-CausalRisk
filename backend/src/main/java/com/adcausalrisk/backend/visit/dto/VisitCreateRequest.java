@@ -5,6 +5,7 @@ import java.time.LocalDate;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -29,12 +30,14 @@ import jakarta.validation.constraints.Size;
  *   <li>{@code @DecimalMin}/{@code @DecimalMax} mirror the {@code ck_visit_*} CHECK
  *       constraints. {@code @Min}/{@code @Max} are not used because they do not support
  *       {@link BigDecimal}.</li>
- *   <li>Precision is deliberately <b>not</b> constrained here. The contract declares a plain
- *       {@code number} with only a min/max range, so rejecting a value such as {@code 27.55}
- *       would refuse a contract-valid request. The value is stored exactly as submitted:
- *       migration {@code V3} widened the column to {@code DECIMAL(5,2)} and
- *       {@code VisitMapper} performs no rounding, so a later read - and the value handed to the
- *       scoring workflow - recovers the original observation.</li>
+ *   <li>Precision is not a business rule here. The contract declares a plain {@code number} with
+ *       only a min/max range, so a value such as {@code 27.55} must be accepted and stored
+ *       exactly as submitted: migration {@code V4} added {@code raw_*} text columns that keep the
+ *       original value, while the {@code DECIMAL(5,2)} columns hold a rounded copy for display.
+ *       {@code @Digits(integer = 2, fraction = 61)} is therefore a <b>storage-fit</b> guard, not
+ *       a precision preference: a value in 0-30 written out with at most 61 decimals fits the
+ *       {@code VARCHAR(64)} raw column, and anything longer is rejected with a clear 400 instead
+ *       of failing inside the database (where MySQL could even truncate it silently).</li>
  * </ul>
  *
  * <p>The three scores are optional. Omitting one stores {@code NULL} and the response reports
@@ -43,7 +46,7 @@ import jakarta.validation.constraints.Size;
 public record VisitCreateRequest(
         @NotBlank @Size(max = 50) String visitCode,
         @NotNull LocalDate visitDate,
-        @DecimalMin("0") @DecimalMax("30") BigDecimal mmse,
-        @DecimalMin("0") @DecimalMax("30") BigDecimal moca,
-        @DecimalMin("0") @DecimalMax("18") BigDecimal cdrSb) {
+        @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal mmse,
+        @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal moca,
+        @DecimalMin("0") @DecimalMax("18") @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {
 }

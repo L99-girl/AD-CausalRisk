@@ -68,7 +68,7 @@ class SchemaMigrationTest {
                 "SELECT version FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3");
+        assertThat(versions).containsExactly("1", "2", "3", "4");
     }
 
     /**
@@ -81,13 +81,31 @@ class SchemaMigrationTest {
         for (String columnName : List.of("mmse", "moca", "cdr_sb")) {
             ColumnShape shape = columnShape("visit", columnName);
 
+            assertThat(shape.typeName().toLowerCase(Locale.ROOT))
+                    .as("%s must stay a numeric column", columnName).doesNotContain("char");
             assertThat(shape.precision()).as("%s precision", columnName).isEqualTo(5);
             assertThat(shape.scale()).as("%s scale", columnName).isEqualTo(2);
         }
     }
 
-    /** Precision (COLUMN_SIZE) and scale (DECIMAL_DIGITS) of one column. */
-    private record ColumnShape(int precision, int scale) {
+    /**
+     * V4 keeps the submitted score as text in {@code raw_*}, so no scale is imposed on it. Those
+     * columns must be wide text: a silently numeric or shorter column would either round the value
+     * or reject the insert.
+     */
+    @Test
+    void visitRawScoreColumnsAreWideText() throws SQLException {
+        for (String columnName : List.of("raw_mmse", "raw_moca", "raw_cdr_sb")) {
+            ColumnShape shape = columnShape("visit", columnName);
+
+            assertThat(shape.typeName().toLowerCase(Locale.ROOT))
+                    .as("%s must be a character column", columnName).contains("char");
+            assertThat(shape.precision()).as("%s length", columnName).isEqualTo(64);
+        }
+    }
+
+    /** JDBC type name, precision/length (COLUMN_SIZE) and scale (DECIMAL_DIGITS) of one column. */
+    private record ColumnShape(String typeName, int precision, int scale) {
     }
 
     private ColumnShape columnShape(String tableName, String columnName) throws SQLException {
@@ -99,7 +117,9 @@ class SchemaMigrationTest {
                 String column = columns.getString("COLUMN_NAME").toLowerCase(Locale.ROOT);
                 if (tableName.equals(table) && columnName.equals(column)) {
                     return new ColumnShape(
-                            columns.getInt("COLUMN_SIZE"), columns.getInt("DECIMAL_DIGITS"));
+                            columns.getString("TYPE_NAME"),
+                            columns.getInt("COLUMN_SIZE"),
+                            columns.getInt("DECIMAL_DIGITS"));
                 }
             }
         }

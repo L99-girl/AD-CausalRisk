@@ -29,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.test.context.ActiveProfiles;
@@ -85,6 +86,9 @@ class VisitApiTest {
 
     @Autowired
     private VisitRepository visitRepository;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     // ===================================================================
     // 1. POST /api/subjects/{subjectId}/visits - happy path
@@ -320,13 +324,15 @@ class VisitApiTest {
     }
 
     /**
-     * A score with more than two decimals cannot be stored in {@code DECIMAL(5,2)}: the database
-     * rounds it. The response must report the value the database holds, not the submitted one,
-     * otherwise POST and a later GET would disagree about the same visit - which is why the
-     * service refreshes the entity it just wrote.
+     * A score with more than two decimals must survive untouched. The {@code raw_*} text columns
+     * added by migration {@code V4} hold the submitted value, so POST and a later GET both return
+     * 27.555, while the derived {@code DECIMAL(5,2)} column keeps 27.56 for display and SQL.
+     *
+     * <p>Before V4 the response reported the rounded 27.56, which is exactly what shifted the
+     * score the Python scorer produced.
      */
     @Test
-    void scoreBeyondTheColumnScaleIsReportedAsStored() throws Exception {
+    void scoreBeyondTheDecimalScaleIsReturnedInFullAndRoundedOnlyInTheDerivedColumn() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-SCALE-BOUND");
 
@@ -335,12 +341,69 @@ class VisitApiTest {
                 .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(created.get("data").get("mmse").asText()).isEqualTo("27.56");
+        assertThat(created.get("data").get("mmse").decimalValue())
+                .as("POST must return the submitted value, not the rounded copy")
+                .isEqualByComparingTo(new BigDecimal("27.555"));
         assertThat(ContractSchemas.validateResponse(created, VISITS_PATH, "post", 200)).isEmpty();
 
-        // The follow-up read must agree with what POST reported.
+        // A later read must report exactly the same value.
         JsonNode stored = firstVisitOfDetail(subject.getId(), admin);
-        assertThat(stored.get("mmse").asText()).isEqualTo("27.56");
+        assertThat(stored.get("mmse").decimalValue())
+                .as("GET must agree with POST")
+                .isEqualByComparingTo(new BigDecimal("27.555"));
+
+        // The two stored forms differ on purpose: raw text keeps the input, DECIMAL is the
+        // rounded display copy.
+        Visit entity = visitRepository.findById(created.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getRawMmse()).isEqualTo("27.555");
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("27.56"));
+    }
+
+    /**
+     * A row written before migration {@code V4} has no raw value: the backfill could only copy
+     * whatever the older, narrower columns still held, and a hand-inserted row may have none at
+     * all. Such a row must stay readable, falling back to the derived DECIMAL column instead of
+     * reporting {@code null}.
+     */
+    @Test
+    void visitWithoutRawScoreFallsBackToTheDerivedColumn() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-LEGACY");
+        jdbc.update("""
+                INSERT INTO visit (subject_id, visit_code, visit_date, mmse)
+                VALUES (?, 'LEGACY', DATE '2025-01-01', 27.56)
+                """, subject.getId());
+
+        JsonNode stored = firstVisitOfDetail(subject.getId(), admin);
+
+        assertThat(stored.get("mmse").decimalValue())
+                .as("a row without a raw value falls back to the DECIMAL column")
+                .isEqualByComparingTo(new BigDecimal("27.56"));
+    }
+
+    /**
+     * The two stored forms must never drift apart for any row this code writes: the derived
+     * column has to equal the raw value rounded to two decimals. The check runs over the whole
+     * table rather than one row, so it also covers rows created by other tests.
+     */
+    @Test
+    void everyStoredVisitKeepsTheDerivedColumnConsistentWithItsRawValue() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-INVARIANT");
+        mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 27.555, 25.44, 0.5).session(admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(createVisit(subject.getId(), "M1", "2025-02-01", 28.0, null, null).session(admin))
+                .andExpect(status().isOk());
+
+        var inconsistent = jdbc.queryForList("""
+                SELECT id, mmse, raw_mmse FROM visit
+                WHERE raw_mmse IS NOT NULL
+                  AND (mmse IS NULL OR mmse <> ROUND(CAST(raw_mmse AS DECIMAL(38, 10)), 2))
+                """);
+
+        assertThat(inconsistent)
+                .as("rows whose DECIMAL column is not round(raw, 2)")
+                .isEmpty();
     }
 
     // ===================================================================
