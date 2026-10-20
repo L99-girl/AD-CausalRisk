@@ -16,7 +16,7 @@
 
 ## 1. 已实现范围
 
-共同契约共 **22 个操作**，目前已实现 **6 个**：
+共同契约共 **22 个操作**，目前已实现 **7 个**：
 
 ### 第一组：认证（auth）
 | 操作 | 路径 | 说明 |
@@ -30,9 +30,20 @@
 | --- | --- | --- |
 | `getApiSubjects` | `GET /api/subjects` | 分页查询档案列表，先按权限过滤再分页 |
 | `postApiSubjects` | `POST /api/subjects` | 创建档案（ADMIN / RESEARCHER） |
-| `getApiSubjectsBySubjectId` | `GET /api/subjects/{subjectId}` | 查询档案详情（visits / features 固定为空数组） |
+| `getApiSubjectssubjectId` | `GET /api/subjects/{subjectId}` | 查询档案详情；`visits` 来自 `visit` 表，`features` 仍为空数组 |
 
-权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建仅限 ADMIN / RESEARCHER。
+### 第三组：访视（visit）
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiSubjectsVisitssubjectId` | `POST /api/subjects/{subjectId}/visits` | 创建访视（ADMIN / RESEARCHER） |
+
+访视**没有独立的查询接口**：契约在该路径上只声明了 `POST`，因此访视通过档案详情的 `visits` 字段读取（`GET /api/subjects/{subjectId}`）。新增一个 `GET` 属于共同契约变更，需先走契约 PR。
+
+权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建档案仅限 ADMIN / RESEARCHER；创建访视沿用**同一条** `SubjectAccessPolicy.canCreate` 规则，因此单档案的 `MANAGE` 授权并不足以创建访视。
+
+**患者字段过滤与原始分数**：判定集中在 `SubjectAccessPolicy.canReadRawScores(principal, subjectId)`，按角色且**按档案**决定：ADMIN / RESEARCHER 直接可读；DOCTOR 必须在该档案上持有 `VIEW` 或 `MANAGE`；PATIENT 与任何未知角色一律不可读。**PATIENT 优先级最高**：账号只要带 PATIENT 角色，即使同时拥有 RESEARCHER 或 ADMIN 也一律不可读。因此"只被授予 `SUMMARY_READ`"的医生同样看不到原始分数——这是防止 `SUMMARY_READ` 被升级成整份读取的关键。不可读时详情响应中的 `visits` 为空数组。
+
+访视的分数缺失时按 `null` 保存并返回，**绝不补 0**；范围 `mmse`/`moca` 0–30、`cdrSb` 0–18。契约允许任意精度，**接口永远返回原始提交值**：迁移 `V4` 新增 `raw_mmse`/`raw_moca`/`raw_cdr_sb`（`VARCHAR(64)`）保存提交时的原文，`mmse`/`moca`/`cdr_sb`（`DECIMAL(5,2)`）降级为**派生/展示列**（`round(raw, 2)`），只供图表、列表与 SQL 统计使用，不参与评分。原文与派生值在实体构造函数里一次算出，因此不可能只写一半。超出 `VARCHAR(64)` 能表示的精度由 `@Digits(integer = 2, fraction = 61)` 以 400 拒绝，而不是让数据库报错或静默截断。
 
 另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、后端 CI。
 
@@ -77,7 +88,7 @@ $env:ADCR_DB_PASSWORD = '<your-db-password>'
 
 ## 4. 数据库迁移
 
-- 迁移脚本位于 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（15 张表、唯一约束、外键、索引、枚举 CHECK），`V2__seed_synthetic_accounts.sql`（四角色 + 合成账号）。
+- 迁移脚本位于 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（15 张表、唯一约束、外键、索引、枚举 CHECK），`V2__seed_synthetic_accounts.sql`（四角色 + 合成账号），`V3__increase_visit_score_precision.sql`（把 `visit` 的三个分数列从 `DECIMAL(4,1)` 提升为 `DECIMAL(5,2)`），`V4__preserve_raw_visit_scores.sql`（新增 `raw_*` 文本列保存提交原文，把 DECIMAL 列降级为派生列，并回填历史行 —— 回填不可逆，详见 §12）。
 - **迁移在应用启动时由 Flyway 自动执行**；测试时在 H2 上由测试上下文自动执行。未配置 `flyway-maven-plugin`，因此**没有独立的迁移命令行**。
 - 表结构的唯一事实来源是迁移脚本。JPA 配置为 `ddl-auto: validate`：实体与 DDL 不一致时启动即失败，**不允许改成 `update`**，也不靠启动重建表。
 - **不要修改已经应用过的 `V1` / `V2`**：Flyway 会因校验和不匹配而拒绝启动。新增变更请添加 `V3__*.sql`。
@@ -129,12 +140,14 @@ cd backend
 
 | 测试类 | 用例数 | 覆盖 |
 | --- | --- | --- |
-| `SchemaMigrationTest` | 11 | 迁移执行、15 张表精确集合、唯一/外键/CHECK 约束确实生效、种子账号与 BCrypt 口令匹配 |
+| `SchemaMigrationTest` | 13 | 迁移执行、15 张表精确集合、唯一/外键/CHECK 约束确实生效、种子账号与 BCrypt 口令匹配、`visit` 派生列 precision=5/scale=2、`raw_*` 为长度 64 的字符列 |
 | `EnvelopeContractTest` | 15 | 六键 `Envelope`、null 不省略、未知字段拒绝、400/401/403/404/405/415/500 映射、traceId 透传、真实安全过滤链 |
 | `AuthApiTest` | 12 | 登录 / 登出 / `api/me`、多角色并集与菜单、统一失败提示、会话固定防护、会话失效 |
-| `SubjectApiTest` | 22 | 三接口正常流程、分页边界钳位、subjectCode 格式/重复校验、不存在返回 400、DOCTOR/PATIENT 创建返回 403、DOCTOR 只看授权档案、未登录 401、详情 visits/features 为空数组、真实登录建立 session、契约 schema 校验 |
+| `SubjectApiTest` | 28 | 三接口正常流程、分页边界钳位、subjectCode 格式/重复校验、不存在返回 400、DOCTOR/PATIENT 创建返回 403、DOCTOR 只看授权档案、未登录 401、详情 visits/features 为空数组、**原始分数按角色+按档案过滤：PATIENT、`PATIENT+RESEARCHER` 双角色、持有 `VIEW` 的 PATIENT、仅有 `SUMMARY_READ` 的 DOCTOR 均收到空 visits（均以 ADMIN 对照证明数据存在），持有 `VIEW`/`MANAGE` 的 DOCTOR 可读，无授权返回 403**、真实登录建立 session、契约 schema 校验 |
+| `VisitApiTest` | 30 | 创建访视正常流程、读取闭环（详情 `visits` 出现新记录）、按 `visitDate`/`id` 排序、同 `visitCode` 跨档案可用、分数上下界、50 字符 `visitCode`、缺失分数存 `null` 不补 0、越界拒绝、多余小数原值保留（`27.55` 存回 `27.55`）、**3 位小数原值往返：POST 与 GET 都返回 `27.555`，而实体派生列是 `27.56`、`raw_mmse` 是 `"27.555"`**、**未回填（`raw_*` 为 NULL）的行退回 DECIMAL 列**、**全表不变量 `mmse == round(raw_mmse, 2)`**、非法日期返回 `MALFORMED_JSON`、未知字段拒绝、重复 `visitCode` 返回 400 且不覆盖、档案不存在返回 400、DOCTOR/PATIENT 与仅有 `MANAGE` 授权者返回 403、未登录 401、契约 schema 校验 |
+| `VisitServiceTest` | 1 | 纯 Mockito 单测：数据库唯一约束在预检之后触发时返回 400 `VALIDATION_ERROR` 而不是 500 |
 
-总计 **60 个测试**，全部在 H2（`MODE=MySQL`）上通过。
+总计 **99 个测试**，全部在 H2（`MODE=MySQL`）上通过。
 
 响应同时被 `contracts/java-business.target.openapi.json` **本身**校验：`ContractSchemas` 读取契约文件、解析 `$ref`、按 JSON Schema 2020-12 并开启 format 断言。契约文件找不到时测试直接失败，不会静默跳过。
 
@@ -231,12 +244,13 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作中的 **16 个未实现**：访视、特征、导入、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
-- **档案模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；访视/特征写入未实现（详情接口的 `visits` / `features` 当前固定返回空数组）。
+- 契约 22 个操作中的 **15 个未实现**：特征、导入、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
+- **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
+- **访视分数的精度（双列语义）**：`raw_mmse`/`raw_moca`/`raw_cdr_sb` 是**权威**值，保存提交原文，接口返回它；`mmse`/`moca`/`cdr_sb` 是**派生**列，等于 `round(raw, 2)`，仅供展示、列表与 SQL 统计，不参与评分。因此 `27.555` 会被接口原样返回，而 DECIMAL 列是 `27.56`。两者的派生关系由实体构造函数一次完成，`VisitApiTest` 还有一条**全表不变量**断言 `mmse == round(raw_mmse, 2)`。**V4 的回填不可逆**：V1–V3 期间写入的行早已被舍入，回填只能把"库里仅存的舍入值"复制到 `raw_*`，无法还原原始输入。`raw_*` 为 NULL 的行（手写 SQL、或回填遗漏）读取时退回 DECIMAL 列，不会返回 `null`。入口用 `@Digits(integer = 2, fraction = 61)` 拦掉超出 `VARCHAR(64)` 的精度，避免数据库报错或（MySQL 非严格模式下）静默截断。
 - **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。
 - **FR-AUTH-02/03 部分覆盖**：角色管理接口未实现；档案对象级权限已在 `SubjectAccessPolicy` 中实现但授权管理端点缺失。
 - **`Idempotency-Key` 处理未做**（`idempotency_record` 表已建）。
-- **患者字段过滤未做**（FR-EXPLAIN-02）：不返回排序数值、图权重与内部轨迹的要求尚未落实。
+- **患者字段过滤只覆盖了访视分数**（FR-EXPLAIN-02）：PATIENT 的档案详情已不再返回原始量表分数（`visits` 恒为空），但评估结果中的**排序数值、图权重与内部阶段轨迹**仍需在后端过滤，目前未落实（属评估模块）。特征接入详情后也必须套用同一 `canReadRawScores` 判定。
 - **Mock Python 超时 / 版本错 / 409 / BLOCKED 测试未做**；重启历史查询未做。
 - **CSRF token 防护未做、`SameSite` 未显式配置**（见第 11 节）。
 - 后端 CI 已添加（`.github/workflows/backend-build.yml`），但**从未在 GitHub 上实际跑过**。
@@ -246,7 +260,9 @@ cd backend
 1. **MySQL 8 上的迁移与运行**：本机无 MySQL 服务、无 Docker，`V1` / `V2` 与全部测试都只在 H2 2.3.232（`MODE=MySQL`）上验证过，MySQL 分支从未执行。
 2. **`application-local.yml` 的连接串**：从未连接过真实 MySQL。
 3. **第 5 节的启动命令**：`spring-boot:run` 与 `java -jar` 均未实际执行过。
-4. **`ddl-auto: validate` 只在 H2 上生效过**：它现在真实检查已映射实体与 DDL 的一致性（`sys_user`、`sys_role`、`user_role`、`subject`、`subject_permission`），但结论不能外推到 MySQL 的类型名。
-5. **CI 工作流未运行过**：`actions/setup-java` 的 Maven 缓存与 `chmod +x mvnw` 步骤仅经人工核对。
-6. **`mvnw` 的可执行位**：本仓库在 Windows 上添加，`core.filemode=false`，因此 `mvnw` 会以 `100644` 提交，Linux 上 `./mvnw` 会报 Permission denied。CI 用 `chmod +x mvnw` 规避；也可以 `git add --chmod=+x backend/mvnw` 从根上解决。
-7. **浏览器实机联调未做**：Cookie 属性、跨域、前端拦截 401 等均未在真实浏览器验证。
+4. **`ddl-auto: validate` 只在 H2 上生效过**：它现在真实检查已映射实体与 DDL 的一致性（`sys_user`、`sys_role`、`user_role`、`subject`、`subject_permission`、`visit`），但结论不能外推到 MySQL 的类型名。这一点对 `visit` 尤其重要：三个分数列是 `DECIMAL(5,2)`，实体必须映射为 `BigDecimal`，映射成 `Double` 会在启动时校验失败。
+5. **`visit_code` 的唯一性在 MySQL 上与 H2 行为不同**：MySQL 8 默认排序规则 `utf8mb4_0900_ai_ci` 大小写不敏感，`'BL'` 与 `'bl'` 在 MySQL 上是同一个键；H2 的 `DATABASE_TO_LOWER` 只影响标识符、不影响值，因此两者在测试中是不同的键。所以"大小写变体算不算重复"**无法在 H2 上验证**（`subject_code` 存在同一问题）。为此 `VisitService` 会捕获 `DataIntegrityViolationException` 并返回 400，而不是 500。
+6. **CI 工作流未运行过**：`actions/setup-java` 的 Maven 缓存与 `chmod +x mvnw` 步骤仅经人工核对。
+7. **`mvnw` 的可执行位**：本仓库在 Windows 上添加，`core.filemode=false`，因此 `mvnw` 会以 `100644` 提交，Linux 上 `./mvnw` 会报 Permission denied。CI 用 `chmod +x mvnw` 规避；也可以 `git add --chmod=+x backend/mvnw` 从根上解决。
+8. **浏览器实机联调未做**：Cookie 属性、跨域、前端拦截 401 等均未在真实浏览器验证。
+9. **V4 双列与原始分数过滤只在 H2 上验证过**：`V4` 的 `ADD COLUMN` 与**隐式转换**回填（刻意不用 `CAST`，MySQL 不接受 `CAST(... AS VARCHAR)`）只在 H2 2.3.232（`MODE=MySQL`）上执行过，MySQL 8 未执行。MySQL 非严格 `sql_mode` 下 `raw_*` 超长是否静默截断也未验证——入口已用 `@Digits(fraction = 61)` 拦截，但该拦截本身同样只在 H2 上验证。列元数据有断言（`raw_*` 为长度 64 的字符列、派生列 precision=5/scale=2），也跑在 H2 上。`27.555` 的原值往返、全表不变量、以及按角色+按档案的 `visits` 过滤同样只在 H2 上验证；真实浏览器端到患者视图的联调未做。
