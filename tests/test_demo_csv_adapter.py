@@ -38,6 +38,8 @@ class CsvAdapterTests(unittest.TestCase):
         handler=Handler();self.assertTrue(serve_course_csv(handler,urlsplit(PATH),write=True))
         self.assertEqual(handler.reads,1);self.assertEqual(handler.result['qualityCounts']['PASS'],1)
         self.assertFalse(handler.result['modelExecuted']);self.assertNotIn('visits',handler.result)
+        self.assertEqual(handler.result['qualityReport']['requestDigest'],handler.result['requestDigest'])
+        self.assertFalse(handler.result['qualityReport']['sourceAuthenticityVerified'])
 
     def test_no_real_mode(self):
         handler=Handler();handler.body['input_mode']='REAL'

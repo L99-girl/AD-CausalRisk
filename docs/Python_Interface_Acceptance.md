@@ -58,6 +58,8 @@ Schema之外还检查来源激活、索引时间、图依赖、阶段顺序、BL
 
 ## 可重复验收
 
+跨语言固定案例、独立本机故障工具、只读runId核对和实际进程重启验收见[故障与恢复说明](Python_Interop_Recovery.md)。这些工具不增加原课程操作，也不替代Java持久化/授权验收。
+
 ```powershell
 python -B -m unittest discover -s tests -v
 python -B -m python_service.course_acceptance --self-test
