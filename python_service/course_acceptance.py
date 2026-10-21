@@ -18,7 +18,7 @@ from .demo_scoring import score_java_synthetic_payload
 from .server import AgentServer,RunStore,MAX_BODY
 
 ROOT=Path(__file__).resolve().parents[1]
-SOURCE_FILES=('contracts/python-agent.openapi.json','python_service/deepagent_contract.py','python_service/course_fusion.py',
+SOURCE_FILES=('contracts/python-agent.openapi.json','python_service/deepagent_contract.py','python_service/course_fusion.py','python_service/course_graph.py',
               'python_service/demo_scoring.py','python_service/server.py','python_service/course_protocol.py',
               'python_service/course_client.py','python_service/course_acceptance.py','fixtures/synthetic_subjects_100.json')
 

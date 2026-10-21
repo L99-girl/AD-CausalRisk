@@ -36,7 +36,7 @@ FAULT_EXPECTATIONS = {'error500': ('ASSESSMENT_FAILED', 500, False),
                       'commit-drop': ('LOCAL_TRANSPORT_FAILED', None, True),
                       'commit-delay': ('LOCAL_TRANSPORT_FAILED', None, True),
                       'wrong-health': ('SERVICE_CONTRACT_MISMATCH', None, False)}
-SOURCE_FILES = ('contracts/python-agent.openapi.json', 'python_service/server.py', 'python_service/course_fusion.py',
+SOURCE_FILES = ('contracts/python-agent.openapi.json', 'python_service/server.py', 'python_service/course_fusion.py', 'python_service/course_graph.py',
                 'python_service/deepagent_contract.py', 'python_service/demo_scoring.py',
                 'python_service/course_protocol.py', 'python_service/course_client.py',
                 'python_service/course_recovery.py', 'python_service/course_interop.py',

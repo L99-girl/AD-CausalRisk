@@ -11,6 +11,7 @@ import time
 from datetime import date
 from typing import Any, Callable
 from .course_fusion import select_fusion
+from .course_graph import default_course_graph
 
 
 CONTRACT_VERSION = "deepagent-v1"
@@ -238,21 +239,8 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
 
     # CAUSAL_GRAPH: a fixed, transparent prior graph with per-subject activation.
     tic = time.perf_counter()
-    nodes = [{"id": "COGNITION", "label": "认知状态", "status": "ACTIVE", "evidenceLevel": "PRIOR"},
-             {"id": "WARNING", "label": "研究型风险排序", "status": "ACTIVE", "evidenceLevel": "MODEL"}]
-    for name, label in (("APOE_E4_COUNT", "APOE ε4"), ("MRI_HIPPOCAMPUS_L", "左海马 MRI"),
-                        ("MRI_HIPPOCAMPUS_R", "右海马 MRI")):
-        nodes.append({"id": name, "label": label, "status": "ACTIVE" if name in feature_map else "MISSING",
-                      "evidenceLevel": "PRIOR", "observedAt": feature_map.get(name, {}).get("recordedAt")})
-    edge_specs = (("APOE_E4_COUNT", "COGNITION"), ("MRI_HIPPOCAMPUS_L", "COGNITION"),
-                  ("MRI_HIPPOCAMPUS_R", "COGNITION"), ("COGNITION", "WARNING"))
-    edges = [{"from": source, "to": target,
-              "status": "ACTIVE" if source == "COGNITION" or source in feature_map else "MISSING",
-              "evidenceLevel": "PRIOR", "direction": "CONDITIONAL",
-              "note": "研究先验约束路径，不代表已识别的个体因果效应"} for source, target in edge_specs]
-    paths = [{"nodes": [edge["from"], edge["to"]], "status": edge["status"],
-              "evidenceLevel": edge["evidenceLevel"]} for edge in edges]
-    graph = {"nodes": nodes, "edges": edges, "paths": paths, "graphVersion": "synthetic-prior-v1"}
+    graph = default_course_graph(feature_map)
+    paths = graph["paths"]
     stages.append(_stage("CAUSAL_GRAPH", "COMPLETED", tic, {"activePaths": sum(p["status"] == "ACTIVE" for p in paths)}))
 
     # WARNING_MODEL: active graph nodes/edges gate the canonical observations.
