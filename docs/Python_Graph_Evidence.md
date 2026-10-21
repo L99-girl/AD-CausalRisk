@@ -26,3 +26,24 @@ candidate_view = inspect_course_graph(request, template=checked)
 工作流始终调用默认图构建器，未增加模板请求字段，候选配置不进入任何评分器。`inspect_course_graph`只按原索引日/最新非空/缺失/冲突规则实例化图；riskScore恒为null，modelExecuted/modelFitted/predictionProduced/persisted均false。BLOCKED保留空图，原模板且非阻断时的originalScoringEligible只表示符合原资格，不能解读为已经执行评分。候选始终originalScoringEligible=false。
 
 该图不增加未采集的人口学/PET/CSF字段，不证明医学边方向。原左右MRI均可作为上下文ACTIVE，实际演示规则仍左侧优先、缺失才回退右侧；两侧ACTIVE不产生两个MRI贡献。来源历史可获得日和真实性、边稳定性及临床有效性仍未建立。
+
+## 原结果的来源与代数路径
+
+```python
+from python_service.course_path_evidence import build_course_path_evidence
+
+# request/result均为调用方已持有的原课程对象；这里不会执行评分或请求HTTP。
+evidence = build_course_path_evidence(request, result)
+```
+
+输入先取有界快照，再通过原冻结Schema和完整请求绑定校验；伪造贡献、错误身份/版本/质量/图或分数均拒绝。返回requestSha256/resultSha256、原版本、默认模板摘要、原资格图及独立的规则来源图。每项包含实际输入sourceIds、原解释项索引、公式、未舍入贡献、原四位小数贡献/方向/证据等级；不改变原结果。
+
+`sourceNodes`保存原值、单位、visitCode/featureName及声明观察日期。recordIndex是传入数组1基序号，jsonPointer是标准0基数组指针，都不是CSV物理行。历史availableAt没有证据时为null。认知来源严格为原索引访视，较早值不回填当前缺失；MMSE_DELTA使用原规则的全输入历史首末访视，不受另行资料矩阵lookback影响，也不认证真正入组基线。日期并列的非索引访视按原选择策略排序，不额外改写旧算法。
+
+APOE/MRI来源只引用索引日之前实际选中的非空观测。较晚null不擦除旧值，索引日后记录不使用；同日同值重复行全部保留引用，但只形成一个规则项/一个贡献权重。两侧MRI可用时右侧只列入contextOnlySources，不连接至额外贡献。左侧为0仍优先使用；仅左侧不可用时回退右侧。
+
+规则来源图的DERIVED_FROM边不赋数值权重；ADDITIVE_TERM边权重为该项原贡献，单位score，允许负数和零。所有路径都明确causalInterpretationAllowed=false。这里的方向、边与权重是代数来源，不是生物中介、学得强度、个体因果效应或Bootstrap稳定性。
+
+`reconstruction`逐项使用原结果检查器的未舍入规则值，保留固定0.18基准、实际加法顺序、[0.05,0.95]截断调整及最终四位舍入调整。另列原展示贡献之和的截断重构、与返回分数的残差及原舍入上界。贡献四位数之和可以与最终分数有小差异，不把截断或舍入残差伪造为另一条解释。rawContribution与方向阈值保留未舍入语义，显示0.002并不必然意味着原方向NEUTRAL。
+
+未生成的六项通过missingTerms给出具体原因，不补0。BLOCKED保持空资格图、空sourceNodes/termNodes/edges/paths、outputNode和reconstruction为null，全部missingTerms为QUALITY_BLOCKED。upstreamResultScore仅抄录已验证结果（阻断为null），predictionProduced仍false，没有新推理或保存。新图证据对象不是共同HTTP DTO或Java业务审计/授权报告。
