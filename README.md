@@ -13,6 +13,7 @@ Java客户端的构造案例包、真实HTTP故障工具与超时后的只读核
 默认图模板、受限候选检查与原输入路径追溯见[Python图谱证据](docs/Python_Graph_Evidence.md)。
 构造概率的受试者划分检查、预测指标与校准描述见[Python预测评估](docs/Python_Prediction_Evaluation.md)。
 原合成请求的模态/信号移除计划及敏感性边界见[Python缺失输入敏感性](docs/Python_Missingness_Sensitivity.md)。
+四阶段说明文字与证据范围审查、有界离线审查记录及HTTP拒绝行为见[Python输出审查](docs/Python_Output_Review.md)。
 
 首次参与按以下顺序开始：克隆仓库 → 运行 Python 示例 → 阅读需求和接口 → 选择一个功能 → 创建分支 → 实现与测试 → 提交 PR。与 AI 一起开发时，可使用下文的任务模板。
 
