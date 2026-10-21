@@ -41,10 +41,14 @@ def json_tree(value,depth=0):
     require(depth<=64,'JSON_DEPTH')
     if isinstance(value,dict):
         require(all(isinstance(key,str) for key in value),'JSON_TYPES')
+        for key in value:json_tree(key,depth)
         for child in value.values():json_tree(child,depth+1)
     elif isinstance(value,list):
         for child in value:json_tree(child,depth+1)
-    else:require(value is None or type(value) in (str,bool) or number(value),'JSON_TYPES')
+    elif isinstance(value,str):
+        try:value.encode('utf-8')
+        except UnicodeError:raise CourseProtocolError('JSON_TEXT') from None
+    else:require(value is None or type(value) is bool or number(value),'JSON_TYPES')
 
 
 def decode_json(raw):
