@@ -245,6 +245,6 @@ def _result(payload: dict[str, Any], status: str, current_stage: str, quality: s
         "dataVersion": payload["dataVersion"], "modelVersion": payload["modelVersion"],
         "qualityStatus": quality, "riskScore": score, "riskLevel": level,
         "warnings": warnings, "graph": graph, "explanations": explanations,
-        "missingModalities": missing, "limitations": LIMITATIONS, "stages": stages,
+        "missingModalities": missing, "limitations": list(LIMITATIONS), "stages": stages,
         "dataSource": "SYNTHETIC_DEMO", "reviewRequired": True,
     }

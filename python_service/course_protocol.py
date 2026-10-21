@@ -10,10 +10,11 @@ import math
 from pathlib import Path
 import re
 from .deepagent_contract import (validate_request, AgentContractError, CONTRACT_VERSION,
-                                WORKFLOW_VERSION, MODEL_VERSION, STAGES, FEATURES)
+                                WORKFLOW_VERSION, MODEL_VERSION, STAGES, FEATURES, LIMITATIONS)
 
 CONTRACT_FILE=Path(__file__).resolve().parents[1]/'contracts/python-agent.openapi.json'
 FROZEN_CONTRACT_SHA256='90384cccce76dd35c8d31dbcc182d8c2f0ff32031948dc694ca7520cdf13eb6c'
+REQUIRED_LIMITATIONS=tuple(LIMITATIONS)
 KEYWORDS={'type','properties','required','additionalProperties','items','maxItems','const','enum',
           'format','pattern','minLength','maxLength','minimum','maximum','allOf','if','then','else'}
 
@@ -139,6 +140,53 @@ def context(payload):
     return visits,latest,index,features,eligible,blocked
 
 
+def _rule_terms(visits,latest,features):
+    """Check the frozen demo arithmetic without calling a workflow or scorer.
+
+    Retain raw terms for threshold/level checks: rounding a displayed term first
+    loses the side of a direction or level boundary. This is a response check,
+    not a new prediction, learned model or clinical validation.
+    """
+    def clipped(value,low,high):return max(low,min(high,value))
+    terms={}
+    if latest.get('mmse') is not None:terms['MMSE']=clipped((27.-float(latest['mmse']))/10.,-.08,.22)
+    if latest.get('moca') is not None:terms['MoCA']=clipped((25.-float(latest['moca']))/12.,-.04,.14)
+    if latest.get('cdrSb') is not None:terms['CDR_SB']=clipped(float(latest['cdrSb'])/10.,0.,.20)
+    if len(visits)>=2 and visits[0].get('mmse') is not None and latest.get('mmse') is not None:
+        terms['MMSE_DELTA']=clipped(-(float(latest['mmse'])-float(visits[0]['mmse']))/30.,-.08,.14)
+    if 'APOE_E4_COUNT' in features:
+        terms['APOE_E4_COUNT']=clipped(float(features['APOE_E4_COUNT']['featureValue'])*.045,0.,.09)
+    side='MRI_HIPPOCAMPUS_L' if 'MRI_HIPPOCAMPUS_L' in features else 'MRI_HIPPOCAMPUS_R'
+    if side in features:terms['MRI_HIPPOCAMPUS']=clipped((.42-float(features[side]['featureValue']))*.22,-.03,.07)
+    raw_score=.18
+    for value in terms.values():raw_score+=value
+    raw_score=clipped(raw_score,.05,.95)
+    return terms,round(raw_score,4),'LOW' if raw_score<.34 else 'MEDIUM' if raw_score<.65 else 'HIGH'
+
+
+def _quality_warnings(payload,visits,latest,index,features,eligible,blocked):
+    """The fixed workflow's declared quality decisions, independent of wire text order."""
+    warnings=[]
+    if len(eligible)!=len(payload['features']):warnings.append('索引访视之后采集的特征已排除，防止时间泄漏')
+    if FEATURES-set(features):warnings.append('部分遗传或 MRI 指标缺失，图谱对应路径标为 MISSING')
+    if sum(row['visitDate']==index for row in visits)>1:warnings.append('最近访视日期对应多个记录，索引访视无法唯一确定')
+    groups={}
+    for row in eligible:groups.setdefault((row['featureName'],row['recordedAt']),set()).add(row.get('featureValue'))
+    if any(len(values)>1 for values in groups.values()):warnings.append('同一特征在同一天存在冲突值，需人工核对')
+    if payload['predictionWindowMonths']!=24:warnings.append('当前合成研究规则仅支持 24 个月预警任务')
+    if blocked:
+        if latest is None or all(latest.get(key) is None for key in ('mmse','moca','cdrSb')):
+            warnings.append('缺少可用的核心认知访视，风险排序已阻断')
+    else:
+        for field,message in [('mmse','最近访视缺少 MMSE，解释完整度下降'),
+                              ('moca','最近访视缺少 MoCA，未将该模态纳入本次评分'),
+                              ('cdrSb','最近访视缺少 CDR-SB，结果需人工复核')]:
+            if latest.get(field) is None:warnings.append(message)
+        if 'APOE_E4_COUNT' not in features:warnings.append('APOE 特征缺失，个体化遗传上下文不完整')
+        if not {'MRI_HIPPOCAMPUS_L','MRI_HIPPOCAMPUS_R'}&set(features):warnings.append('MRI 海马特征缺失，结构性上下文不完整')
+    return warnings
+
+
 def validate_course_result(result,payload,contract):
     try:return _validate_course_result(result,payload,contract)
     except (KeyError,TypeError,AttributeError,OverflowError,RecursionError):
@@ -149,7 +197,7 @@ def _validate_course_result(result,payload,contract):
     validate_course_request(payload,contract);contract.validate('AgentResult',result)
     require(all(result[key]==payload[key] for key in ('runId','dataVersion','modelVersion','contractVersion')),'RESULT_IDENTITY')
     require(result['workflowVersion']==WORKFLOW_VERSION and result['dataSource']=='SYNTHETIC_DEMO' and result['reviewRequired'] is True,'RESULT_SCOPE')
-    require(bool(result['limitations']),'RESULT_SCOPE')
+    require(set(REQUIRED_LIMITATIONS)<=set(result['limitations']),'RESULT_SCOPE')
     visits,latest,index,features,eligible,blocked=context(payload)
     missing=sorted(FEATURES-set(features));require(sorted(result['missingModalities'])==missing,'MISSING_MODALITIES')
     stages=result['stages'];expected=('DATA_FUSION',) if blocked else STAGES
@@ -161,6 +209,9 @@ def _validate_course_result(result,payload,contract):
             and summary.get('featureCount')==len(features) and summary.get('excludedPostIndexFeatures')==len(payload['features'])-len(eligible)
             and sorted(summary.get('missingModalities',[]))==missing and summary.get('qualityRuleVersion')=='synthetic-qa-v1','FUSION_EVIDENCE')
     require((result['status']=='BLOCKED')==blocked,'QUALITY_GATE')
+    warnings=_quality_warnings(payload,visits,latest,index,features,eligible,blocked)
+    require(len(result['warnings'])==len(set(result['warnings'])) and set(result['warnings'])==set(warnings)
+            and result['qualityStatus']==('BLOCKED' if blocked else 'WARN' if warnings else 'PASS'),'QUALITY_WARNINGS')
     graph=result['graph']
     if blocked:
         require(stages[0]['status']=='BLOCKED' and graph['nodes']==graph['edges']==graph['paths']==[]
@@ -174,7 +225,9 @@ def _validate_course_result(result,payload,contract):
     for key,node in nodes.items():
         active=key in features or key in ('COGNITION','WARNING')
         require(node['status']==('ACTIVE' if active else 'MISSING'),'GRAPH_ACTIVATION')
+        require(node['evidenceLevel']==('MODEL' if key=='WARNING' else 'PRIOR'),'GRAPH_EVIDENCE')
         if key in FEATURES:require(node.get('observedAt')==(features.get(key) or {}).get('recordedAt'),'GRAPH_SOURCE_DATE')
+        else:require(node.get('observedAt') is None,'GRAPH_SOURCE_DATE')
     edge_map={(edge['from'],edge['to']):edge for edge in graph['edges']}
     expected_edges={(key,'COGNITION') for key in FEATURES}|{('COGNITION','WARNING')}
     require(len(edge_map)==len(graph['edges'])==4 and set(edge_map)==expected_edges,'GRAPH_EDGES')
@@ -197,4 +250,14 @@ def _validate_course_result(result,payload,contract):
     level=result['riskLevel'];rounding=.00005+1e-12
     require((level=='LOW' and score<=.34+rounding) or (level=='MEDIUM' and .34-rounding<=score<=.65+rounding)
             or (level=='HIGH' and score>=.65-rounding),'SCORE_LEVEL')
+    raw_terms,expected_score,expected_level=_rule_terms(visits,latest,features)
+    require(all(item['contribution']==round(raw_terms[item['feature']],4) for item in explanations),'EXPLANATION_RULE_VALUES')
+    require(all(item['direction']==('UP' if raw_terms[item['feature']]>.002 else 'DOWN' if raw_terms[item['feature']]<-.002 else 'NEUTRAL')
+                for item in explanations),'EXPLANATION_DIRECTION')
+    require(score==expected_score and level==expected_level,'SCORE_RULE_VALUE')
+    active_paths=sum(path['status']=='ACTIVE' for path in paths)
+    require(type(stages[1]['summary'].get('activePaths')) is int and stages[1]['summary']['activePaths']==active_paths
+            and stages[2]['summary'].get('method')=='graph-masked-synthetic-rule-v1'
+            and type(stages[3]['summary'].get('contributionCount')) is int
+            and stages[3]['summary']['contributionCount']==len(explanations),'STAGE_EVIDENCE')
     return result
