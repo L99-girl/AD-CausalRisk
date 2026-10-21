@@ -158,11 +158,12 @@ class ResultIntegrityTests(unittest.TestCase):
     def test_required_scientific_limitations_cannot_be_replaced(self):
         self.rejects(lambda x: x.update(limitations=['independently validated clinical prediction']), 'RESULT_SCOPE')
 
-    def test_additional_metadata_and_limitations_are_compatible(self):
-        value = result(self.body)
-        value['stages'][1]['summary']['extraMetadata'] = 'not a known semantic field'
-        value['limitations'].append('additional restriction')
-        validate_course_result(value, self.body, self.contract)
+    def test_unreviewed_metadata_and_limitations_are_rejected(self):
+        # Both containers can carry contradictory clinical claims. The frozen
+        # schema remains permissive; the output review now fails closed.
+        self.rejects(lambda x: x['stages'][1]['summary'].update(extraMetadata='unreviewed'),
+                     'OUTPUT_SUMMARY_FIELDS')
+        self.rejects(lambda x: x['limitations'].append('additional restriction'), 'OUTPUT_LIMITATIONS')
 
     def test_direct_result_limitations_do_not_mutate_later_runs_or_required_text(self):
         first = result(self.body)

@@ -12,6 +12,7 @@ import re
 from .deepagent_contract import (validate_request, AgentContractError, CONTRACT_VERSION,
                                 WORKFLOW_VERSION, MODEL_VERSION, STAGES, FEATURES, LIMITATIONS)
 from .course_fusion import select_fusion
+from .course_graph import NODE_SPECS, PRIOR_NOTE
 
 CONTRACT_FILE=Path(__file__).resolve().parents[1]/'contracts/python-agent.openapi.json'
 FROZEN_CONTRACT_SHA256='90384cccce76dd35c8d31dbcc182d8c2f0ff32031948dc694ca7520cdf13eb6c'
@@ -211,6 +212,7 @@ def _validate_course_result(result,payload,contract):
     if blocked:
         require(stages[0]['status']=='BLOCKED' and graph['nodes']==graph['edges']==graph['paths']==[]
                 and result['explanations']==[] and bool(result['warnings']),'BLOCKED_HAS_OUTPUT')
+        _validate_output_narrative(result,{})
         return result
     require(all(stage['status']=='COMPLETED' for stage in stages),'STAGE_SEQUENCE')
     require((result['qualityStatus']=='WARN')==bool(result['warnings']),'QUALITY_WARNINGS')
@@ -255,4 +257,43 @@ def _validate_course_result(result,payload,contract):
             and stages[2]['summary'].get('method')=='graph-masked-synthetic-rule-v1'
             and type(stages[3]['summary'].get('contributionCount')) is int
             and stages[3]['summary']['contributionCount']==len(explanations),'STAGE_EVIDENCE')
+    _validate_output_narrative(result,raw_terms)
     return result
+
+
+def _validate_output_narrative(result,raw_terms):
+    """Check the fixed rule's entire narrative; never classify arbitrary prose.
+
+    A disclaimer does not neutralize a conflicting claim in another field.
+    New prose or metadata requires a reviewed rule change, even when accepted
+    structurally by the original wire schema. No scorer or network is called.
+    """
+    require(len(result['limitations'])==len(REQUIRED_LIMITATIONS)
+            and set(result['limitations'])==set(REQUIRED_LIMITATIONS),'OUTPUT_LIMITATIONS')
+    summary_keys=({'indexDate','visitCount','featureCount','excludedPostIndexFeatures',
+                   'missingModalities','qualityRuleVersion'}, {'activePaths'}, {'method'}, {'contributionCount'})
+    for stage,allowed in zip(result['stages'],summary_keys):
+        require(set(stage['summary'])==allowed,'OUTPUT_SUMMARY_FIELDS')
+    labels={name:label for name,label,_ in NODE_SPECS}
+    for node in result['graph']['nodes']:
+        require(node['label']==labels[node['id']],'OUTPUT_GRAPH_TEXT')
+    for edge in result['graph']['edges']:
+        require(edge['note']==PRIOR_NOTE and edge['direction']=='CONDITIONAL'
+                and edge['evidenceLevel']=='PRIOR','OUTPUT_GRAPH_TEXT')
+    for path in result['graph']['paths']:
+        require(path['evidenceLevel']=='PRIOR','OUTPUT_GRAPH_TEXT')
+    text={
+        'MMSE':('MMSE 认知评分','当前认知评分对风险排序贡献偏高','当前认知评分对风险排序贡献偏低'),
+        'MoCA':('MoCA 认知评分','MoCA 信号使排序分数上移','MoCA 信号使排序分数下移'),
+        'CDR_SB':('CDR-SB','CDR-SB 信号在当前演示排序中贡献上移',None),
+        'MMSE_DELTA':('纵向 MMSE 变化','纵向变化使排序分数上移','纵向变化暂未使排序分数上移'),
+        'APOE_E4_COUNT':('APOE ε4 计数','遗传模态作为个体化上下文进入排序',None),
+        'MRI_HIPPOCAMPUS':('MRI 海马数值','影像模态作为结构性上下文进入排序',None),
+    }
+    for item in result['explanations']:
+        name=item['feature'];label,positive,negative=text[name]
+        # Text follows the original raw contribution, not displayed rounding or
+        # the separate +/-0.002 direction thresholds (zero delta is special).
+        up=raw_terms[name]>0 if name=='MMSE_DELTA' else raw_terms[name]>=0
+        require(item['label']==label and item['message']==(positive if up or negative is None else negative)
+                and item['interpretation']=='预测贡献，不是因果效应','OUTPUT_EXPLANATION_TEXT')
