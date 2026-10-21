@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 from .deepagent_contract import (validate_request, AgentContractError, CONTRACT_VERSION,
                                 WORKFLOW_VERSION, MODEL_VERSION, STAGES, FEATURES, LIMITATIONS)
+from .course_fusion import select_fusion
 
 CONTRACT_FILE=Path(__file__).resolve().parents[1]/'contracts/python-agent.openapi.json'
 FROZEN_CONTRACT_SHA256='90384cccce76dd35c8d31dbcc182d8c2f0ff32031948dc694ca7520cdf13eb6c'
@@ -130,18 +131,8 @@ def validate_course_request(payload,contract):
 
 
 def context(payload):
-    visits=sorted(payload['visits'],key=lambda row:(row['visitDate'],row['visitCode']))
-    latest=visits[-1] if visits else None;index=latest['visitDate'] if latest else None
-    eligible=[row for row in payload['features'] if index and row['recordedAt']<=index]
-    features={};seen={};conflict=False
-    for row in sorted(eligible,key=lambda row:row['recordedAt']):
-        key=(row['featureName'],row['recordedAt'])
-        if key in seen and seen[key]!=row.get('featureValue'):conflict=True
-        seen[key]=row.get('featureValue')
-        if row.get('featureValue') is not None:features[row['featureName']]=row
-    cognition=latest is not None and any(latest.get(key) is not None for key in ('mmse','moca','cdrSb'))
-    blocked=not cognition or sum(row['visitDate']==index for row in visits)>1 or conflict or payload['predictionWindowMonths']!=24
-    return visits,latest,index,features,eligible,blocked
+    selected=select_fusion(payload)
+    return tuple(selected[key] for key in ('visits','latest','indexDate','features','eligibleFeatures','blocked'))
 
 
 def _rule_terms(visits,latest,features):

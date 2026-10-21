@@ -8,6 +8,7 @@ Python三表解析、错误行、关联和原质量门槛的调用方式见[课�
 Java客户端的构造案例包、真实HTTP故障工具与超时后的只读核对见[跨语言故障与恢复验收](docs/Python_Interop_Recovery.md)。
 三表预检、显式runId、HTTP调用与报告的完整Python合成流程见[合成批处理工具](docs/Python_Synthetic_Batches.md)。
 四阶段质量、图、逐项贡献及原始舍入阈值的一致性校验见[Python核心结果校验](docs/Python_Core_Validation.md)。
+多源融合共用选择规则与纵向资料整理见[Python特征融合](docs/Python_Feature_Fusion.md)。
 
 首次参与按以下顺序开始：克隆仓库 → 运行 Python 示例 → 阅读需求和接口 → 选择一个功能 → 创建分支 → 实现与测试 → 提交 PR。与 AI 一起开发时，可使用下文的任务模板。
 

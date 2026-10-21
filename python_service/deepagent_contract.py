@@ -10,6 +10,7 @@ import re
 import time
 from datetime import date
 from typing import Any, Callable
+from .course_fusion import select_fusion
 
 
 CONTRACT_VERSION = "deepagent-v1"
@@ -205,30 +206,20 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
 
     # DATA_FUSION: preserve source dates, select only observations available at
     # the latest visit, and record missing modalities instead of imputing them.
-    visits = sorted(payload["visits"], key=lambda row: (row["visitDate"], row["visitCode"]))
-    latest = visits[-1] if visits else None
-    cutoff = latest["visitDate"] if latest else None
-    eligible = [f for f in payload["features"] if cutoff and f["recordedAt"] <= cutoff]
-    excluded_future = len(payload["features"]) - len(eligible)
+    selected = select_fusion(payload)
+    visits, latest, cutoff = selected["visits"], selected["latest"], selected["indexDate"]
+    excluded_future = selected["excludedPostIndexFeatures"]
     if excluded_future:
         warnings.append("索引访视之后采集的特征已排除，防止时间泄漏")
-    feature_map: dict[str, dict[str, Any]] = {}
-    duplicate_feature_values: dict[tuple[str, str], Any] = {}
-    conflicting_feature = False
-    for feature in sorted(eligible, key=lambda row: row["recordedAt"]):
-        key = (feature["featureName"], feature["recordedAt"])
-        if key in duplicate_feature_values and duplicate_feature_values[key] != feature["featureValue"]:
-            conflicting_feature = True
-        duplicate_feature_values[key] = feature["featureValue"]
-        if feature["featureValue"] is not None:
-            feature_map[feature["featureName"]] = feature
-    missing = [name for name in ("APOE_E4_COUNT", "MRI_HIPPOCAMPUS_L", "MRI_HIPPOCAMPUS_R") if name not in feature_map]
+    feature_map = selected["features"]
+    conflicting_feature = selected["conflictingFeatures"]
+    missing = selected["missingModalities"]
     if missing:
         warnings.append("部分遗传或 MRI 指标缺失，图谱对应路径标为 MISSING")
-    has_cognition = latest is not None and any(latest.get(key) is not None for key in ("mmse", "moca", "cdrSb"))
-    ambiguous_latest = latest is not None and sum(row["visitDate"] == cutoff for row in visits) > 1
-    unsupported_window = payload["predictionWindowMonths"] != 24
-    blocked = not has_cognition or ambiguous_latest or conflicting_feature or unsupported_window
+    has_cognition = selected["hasCognition"]
+    ambiguous_latest = selected["ambiguousIndex"]
+    unsupported_window = selected["unsupportedWindow"]
+    blocked = selected["blocked"]
     if ambiguous_latest:
         warnings.append("最近访视日期对应多个记录，索引访视无法唯一确定")
     if conflicting_feature:
