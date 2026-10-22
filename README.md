@@ -1,90 +1,58 @@
 # AD-CausalRisk
 
-AD-CausalRisk 是一个课程协作项目，将多源资料整理、质量检查、条件图谱、排序解释和随访管理连接成完整的 Web 应用。仓库提供可运行的 Python 子服务、接口契约和演示数据，后端与前端成员分别完成 Java 业务系统和浏览器应用。
+面向阿尔茨海默病风险研究与课程协作的多源数据、条件图谱和可解释排序项目。
 
-Python三表解析、错误行、关联和原质量门槛的调用方式见[课程CSV预检说明](docs/Python_Csv_Preflight.md)；确认入库与业务持久化仍由Java完成。
-缺失/零值、同日冲突、索引日前后来源与字段单位的解释见[Python质量报告](docs/Python_Quality_Review.md)；原课程Agent接口及评分规则保持。
-原课程结果报告见[课程报告工具](docs/Python_Course_Reports.md)；已完成范围、研究限制及后续工作见[Python需求覆盖与缺口](docs/Python_Requirement_Status.md)。
-Java客户端的构造案例包、真实HTTP故障工具与超时后的只读核对见[跨语言故障与恢复验收](docs/Python_Interop_Recovery.md)。
-三表预检、显式runId、HTTP调用与报告的完整Python合成流程见[合成批处理工具](docs/Python_Synthetic_Batches.md)。
-四阶段质量、图、逐项贡献及原始舍入阈值的一致性校验见[Python核心结果校验](docs/Python_Core_Validation.md)。
-多源融合共用选择规则与纵向资料整理见[Python特征融合](docs/Python_Feature_Fusion.md)。
-合成解释的范围核对、Spearman、并列Top-k和对象级经验区间见[Python解释一致性](docs/Python_Explanation_Consistency.md)。
-默认图模板、受限候选检查与原输入路径追溯见[Python图谱证据](docs/Python_Graph_Evidence.md)。
-构造概率的受试者划分检查、预测指标与校准描述见[Python预测评估](docs/Python_Prediction_Evaluation.md)。
-原合成请求的模态/信号移除计划及敏感性边界见[Python缺失输入敏感性](docs/Python_Missingness_Sensitivity.md)。
-四阶段说明文字与证据范围审查、有界离线审查记录及HTTP拒绝行为见[Python输出审查](docs/Python_Output_Review.md)。
+[![Python CI — main](https://github.com/yanxiao07/AD-CausalRisk/actions/workflows/python-base.yml/badge.svg?branch=main)](https://github.com/yanxiao07/AD-CausalRisk/actions/workflows/python-base.yml?query=branch%3Amain)
+[![Java CI — main](https://github.com/yanxiao07/AD-CausalRisk/actions/workflows/backend-build.yml/badge.svg?branch=main)](https://github.com/yanxiao07/AD-CausalRisk/actions/workflows/backend-build.yml?query=branch%3Amain)
 
-首次参与按以下顺序开始：克隆仓库 → 运行 Python 示例 → 阅读需求和接口 → 选择一个功能 → 创建分支 → 实现与测试 → 提交 PR。与 AI 一起开发时，可使用下文的任务模板。
+[快速开始](#快速开始) · [项目状态](#项目状态) · [文档导航](#文档导航) · [参与贡献](#参与贡献) · [路线图](#路线图)
 
-Python本地交付修订标识为`course-python-2026.10.11.1`。本修订让图节点/边明确决定评分输入，归并特征观测并严格检查日期形式；请求/响应字段和演示评分公式保持。图中ACTIVE表示观测可用，左右海马的实际取值及贡献重构规则见[联调约定](docs/Integration_Contract.md#图谱与评分的实际关系)。交付修订标识用于源码包追踪，不是请求中的modelVersion或新增接口字段；克隆远端所得版本需核对实际提交及发布状态。
+AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为可追溯的工作流。Python 提供可独立运行的合成数据服务；Java 承担业务 API、权限与持久化；前端面向研究人员、医生和患者提供相应视图。
 
-## 1. 项目结构与分工
+**项目正在开发中。** 当前课程服务使用明确标记的合成数据与固定加性规则，输出用于教学和工程联调。排序分数不是经临床验证的个体患病概率，图谱箭头不代表已识别的因果或治疗效应。
 
-```text
-AD-CausalRisk/
-├── python_service/             Python 四阶段流程与 HTTP 服务
-├── backend/                    Java 后端工程
-├── frontend/                   前端工程
-├── contracts/                  Python 接口、Java 业务目标接口与 JSON 示例
-├── fixtures/                   演示档案、访视及特征数据
-├── tests/                      Python 与契约测试
-├── docs/                       需求、业务设计、联调和 AI 协作指南
-├── .github/                    CI 与 PR 模板
-├── AGENTS.md                   AI 编码助手的项目规则
-└── CONTRIBUTING.md             团队分支、提交与评审规范
-```
+## 核心能力
 
-| 模块 | 开发内容 | 当前状态 |
+- **资料与质量**：三表 CSV 预检、档案关联、日期与单位检查、缺失/重复/冲突定位，以及严重问题阻断。
+- **四阶段工作流**：`DATA_FUSION → CAUSAL_GRAPH → WARNING_MODEL → EXPLANATION`，保留原值、来源时间、版本、实际阶段与耗时。
+- **可追溯解释**：原图模板、图到评分输入的门控、逐项贡献与截断/舍入重构，以及说明文字的语义校验。
+- **联调与故障处理**：版本化 HTTP 契约、标准库客户端、易失缓存重放、故障案例、只读恢复和合成批处理。
+- **研究工程工具**：纵向特征矩阵、缺失输入敏感性、合成解释一致性和构造概率评估；各工具的适用范围见对应文档。
+
+## 项目状态
+
+以下为当前分支的实现范围；完整验收条件以[课程需求](docs/Course_SRS_V3_2.md)为准。顶部徽章展示 `main` 分支的 CI，功能分支的检查结果请查看对应提交或 PR。
+
+| 模块 | 已有实现 | 后续工作 |
 | --- | --- | --- |
-| Python | 数据融合、条件图谱、排序、解释、输入校验、质量阻断、版本校验 | 可运行 |
-| Java 后端 | 数据库、登录与权限、档案、导入、质控、持久化任务、Python 客户端、复核、随访、报告、审计 | 按 `backend/` 的任务说明实现 |
-| 前端 | 路由与会话、四角色菜单、业务页面、任务状态、图谱/解释、随访、报告、响应式与交互测试 | 按 `frontend/` 的任务说明实现 |
+| Python | 合成四阶段服务、输入与结果校验、质量阻断、融合/图/贡献追溯、客户端和工程工具 | 按实际 Java 接入反馈完成联调；真实研究模型与临床验证单独验收 |
+| Java 后端 | Spring Boot 工程、数据库迁移、认证、档案和访视；目标契约 22 个操作中已实现 7 个 | 特征、导入、质控、持久化任务、AgentClient、结果、复核、随访、报告和审计等，详见[后端说明](backend/README.md) |
+| Web 前端 | 开发说明和布局片段 | 可安装构建的完整应用、会话/路由、业务页面、权限状态与交互测试，详见[前端说明](frontend/README.md) |
+| 全链路 | 契约、合成样例和分模块检查 | 实际 Java → Python 调用、业务保存、患者字段过滤及重启历史查询的联合验收 |
 
-后端和前端成员各自负责完整工程、测试、部署与说明文档。Python 负责人维护算法接口和示例数据；共同接口的变更需要团队评审。
+接口目标、数据库表或页面片段的存在不表示对应业务已完成。Python 工程测试也不替代 Java、MySQL 或浏览器端到端验收。
 
-```text
-浏览器前端（frontend）
-        ↓ Java 业务 API / 登录会话
-Java 后端（backend） ←→ MySQL / 任务 / 审计
-        ↓ AgentClient HTTP
-Python 子服务（127.0.0.1:8091）
-        ↓ DATA_FUSION → CAUSAL_GRAPH → WARNING_MODEL → EXPLANATION
-质量状态 / 条件图谱 / 排序 / 解释
-```
+## 快速开始
 
-## 2. 开发前先读什么
+先运行 Python 合成服务，完成一次请求与查询。该流程不需要 Java、数据库或研究数据。文档与运行源码应来自同一分支。
 
-| 文档 | 需要确认的内容 |
+### 环境要求
+
+| 模块 | 环境 |
 | --- | --- |
-| [课程需求](docs/Course_SRS_V3_2.md) | 功能编号、模块责任、必做项与验收场景 |
-| [业务设计参考](docs/Design_Guide.md) | 角色权限、数据库实体、页面和开发顺序 |
-| [Python 接口](contracts/python-agent.openapi.json) | 三个已实现的 HTTP 操作与请求/响应结构 |
-| [Java 业务接口目标](contracts/java-business.target.openapi.json) | 22个待实现操作、DTO、认证及错误结构 |
-| [联调约定](docs/Integration_Contract.md) | 状态、幂等、阻断、版本与失败处理 |
-| [可选研究服务](docs/Research_Runtime_Integration.md) | 由Python负责人在授权工作区运行；独立版本、来源图与合成验收，Java由同学接入 |
-| [受控研究客户端](docs/Controlled_Research_Client.md) | 用标准库调用既有本机研究系统的目录、批量任务与结果；不启动另一套服务，不改变课程合成接口 |
-| [合成报告与演示兼容](docs/Synthetic_Reports.md) | 完成任务的研究/教学报告、浏览器打印及同一演示服务的兼容适配；真实患者报告不开放 |
-| [模型状态与校验反馈](docs/Model_And_Task_Feedback.md) | 训练和加载的区别、接口标识用途、预期拒绝与服务故障、正常示例恢复 |
-| [研究基底与后端验收](docs/Research_Backend_Acceptance.md) | 实测访视序列、研究结果内存映射、来源图依赖、跨语言构造案例及性能与用途边界 |
-| [Python接口阶段验收](docs/Python_Interface_Acceptance.md) | 课程客户端、固定Schema与语义校验、异常JSON、100份合成HTTP一致性与只读验收记录 |
-| [AI 协作指南](docs/AI_Collaboration.md) | 任务拆分、上下文、提示模板、验证和接续工作 |
-| [协作规范](CONTRIBUTING.md) | 分支命名、提交、PR、评审与同步 |
-
-Java 目标接口是开发约定，不表示对应后端已经存在。开始一个功能前，确认输入、输出、权限、持久化和失败场景；不要只按照页面效果猜接口字段。
-
-## 3. 克隆仓库与准备环境
-
-需要 Git 和 Python 3.11 或 3.12。Python 服务使用标准库，契约测试需要研发依赖。Java、数据库和前端环境由对应成员在模块说明中维护，建议 Java 21、Spring Boot、MySQL 8和 Vue 3。
+| Python 服务 | Python 3.11 或 3.12；运行时仅使用标准库 |
+| Python 测试 | 同一解释器安装 `requirements-dev.lock` |
+| Java 后端 | JDK 21、Maven Wrapper；目标数据库 MySQL 8，自动测试使用 H2 |
+| Web 前端 | 工程与依赖尚待完善，当前没有可用的完整安装/构建流程 |
 
 ```bash
 git clone https://github.com/yanxiao07/AD-CausalRisk.git
 cd AD-CausalRisk
 ```
 
-下面的命令都在仓库根目录运行。Windows 可先用 `py --list` 检查 Python 版本；若只有3.12，把创建环境命令中的3.11改成3.12。
+### 启动 Python 服务
 
-### Windows PowerShell
+Windows PowerShell：
 
 ```powershell
 py -3.11 -m venv .venv
@@ -92,174 +60,185 @@ py -3.11 -m venv .venv
 .venv/Scripts/python.exe -m python_service.server --port 8091
 ```
 
-### Linux / macOS
+如果安装的是 Python 3.12，将第一行的 `-3.11` 改为 `-3.12`。可用 `py --list` 查看本机版本。
+
+Linux / macOS（先确认 `python3 --version` 为 3.11 或 3.12）：
 
 ```bash
-python3 --version
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m python_service.server --port 8091
 ```
 
-启动后保持该终端运行。服务监听 `http://127.0.0.1:8091`；另开终端执行下面的检查。无需激活虚拟环境也能使用这些命令。
+服务监听 `http://127.0.0.1:8091`。保持终端运行，另开终端执行下面的请求。
 
-## 4. 先完成一次 Python 调用
+### 提交并查询一个合成案例
 
-### Windows PowerShell
+Windows PowerShell：
 
 ```powershell
-# 查看健康状态
 Invoke-RestMethod http://127.0.0.1:8091/api/health
 
-# 提交一个档案；示例的 runId 为 run-demo-001
 $request = Get-Content contracts/examples/deepagent-v1.request.example.json -Raw -Encoding UTF8
 $body = [Text.Encoding]::UTF8.GetBytes($request)
 Invoke-RestMethod http://127.0.0.1:8091/api/agent/v1/runs -Method Post -ContentType application/json -Body $body
 
-# 查询同一次运行
 Invoke-RestMethod http://127.0.0.1:8091/api/agent/v1/runs/run-demo-001
 ```
 
-### Linux / macOS
+Linux / macOS：
 
 ```bash
-curl http://127.0.0.1:8091/api/health
-curl -H 'Content-Type: application/json' --data-binary @contracts/examples/deepagent-v1.request.example.json http://127.0.0.1:8091/api/agent/v1/runs
-curl http://127.0.0.1:8091/api/agent/v1/runs/run-demo-001
+curl --fail http://127.0.0.1:8091/api/health
+curl --fail -H 'Content-Type: application/json' --data-binary @contracts/examples/deepagent-v1.request.example.json http://127.0.0.1:8091/api/agent/v1/runs
+curl --fail http://127.0.0.1:8091/api/agent/v1/runs/run-demo-001
 ```
 
-完整示例返回 `status=COMPLETED`、`qualityStatus=PASS`、`dataSource=SYNTHETIC_DEMO` 和四阶段轨迹。当前示例的 `riskScore` 为 `0.8304`；阶段耗时随运行变化，不应写死在前端。
+示例响应的关键字段如下；完整结果还包含图、解释、版本、限制和四阶段轨迹。`durationMs` 随实际执行变化。
 
-| 字段 | 开发时如何使用 |
+```json
+{
+  "status": "COMPLETED",
+  "qualityStatus": "PASS",
+  "riskScore": 0.8304,
+  "riskLevel": "HIGH",
+  "dataSource": "SYNTHETIC_DEMO",
+  "reviewRequired": true
+}
+```
+
+### 使用演示数据
+
+| 文件 | 内容 |
 | --- | --- |
-| `runId` | 关联 Java 任务和 Python 调用；同一请求重试沿用原 ID |
-| `status` | 根据 `COMPLETED` 或 `BLOCKED` 更新任务 |
-| `qualityStatus` | 展示 `PASS/WARN/BLOCKED` 及原因 |
-| `riskScore` / `riskLevel` | 展示排序结果；阻断时分数必须为 `null` |
-| `graph` | 渲染节点、边、路径、激活/缺失状态与版本 |
-| `explanations` | 展示贡献、方向、说明与限制 |
-| `stages` | 展示实际执行阶段和耗时 |
-| `dataVersion` / `modelVersion` / `workflowVersion` | 保存结果版本，用于追溯 |
+| [`fixtures/synthetic_subjects_100.json`](fixtures/synthetic_subjects_100.json) | 100 个单档案请求；每次提交一个 `subjects` 元素 |
+| [`fixtures/subjects.synthetic.csv`](fixtures/subjects.synthetic.csv) | 100 个合成档案 |
+| [`fixtures/visits.synthetic.csv`](fixtures/visits.synthetic.csv) | 200 条访视 |
+| [`fixtures/features.synthetic.csv`](fixtures/features.synthetic.csv) | 300 条特征观测 |
+| [`contracts/examples/`](contracts/examples/) | 请求、响应与跨语言字段示例 |
 
-当前排序用于课程演示，不作为诊断。请求层接受6–60个月整数，出分规则只支持24个月；其他窗口返回 `BLOCKED`。没有核心认知输入、最近访视不唯一或同日特征值冲突时也会阻断。**不能把 `null` 替换成0或补一个随机分数。**
+档案使用 `DEMO-*` 编号，数据版本使用 `demo-*`。不要把整个 100 档案 JSON 直接提交给单档案接口。三表预检和批量调用见[CSV 预检](docs/Python_Csv_Preflight.md)与[合成批处理](docs/Python_Synthetic_Batches.md)。
 
-## 5. 使用演示数据
+## 架构与契约
 
-| 文件 | 内容 | 主要用途 |
-| --- | --- | --- |
-| `fixtures/synthetic_subjects_100.json` | 100个档案的完整 Python 请求 | 每次取一个 `subjects` 元素提交，进行批量联调 |
-| `fixtures/subjects.synthetic.csv` | 100个档案 | 测试档案导入、分页与详情 |
-| `fixtures/visits.synthetic.csv` | 200条访视 | 测试历史记录、时间排序与量表展示 |
-| `fixtures/features.synthetic.csv` | 300条特征 | 测试单位、来源日期与缺失提示 |
-| `contracts/examples/` | 单次请求与完整响应 | 理解字段、编写适配器和页面 Mock |
+目标调用关系如下，虚线表示尚待完成的接入：
 
-数据采用 `DEMO-*` 编号和 `demo-*` 版本。Java 可以使用数字数据库主键，向 Python 仍传 `subjectCode`。完整100档案 JSON 不是单档案接口的请求体，不能一次直接 POST 给该接口。
-
-## 6. 后端和前端如何接入
-
-### 后端成员
-
-在 `backend/` 建立 Spring Boot 工程，先实现数据库迁移、登录/权限、档案和访视，再实现导入、质控及任务。`AgentClient` 调用 Python，并把任务和返回结果保存到数据库。
-
-- Python同步计算后返回结果，没有实时阶段推送。执行中可显示 `RUNNING`，完成后展示实际阶段轨迹。
-- Python缓存只在进程内存，重启清空；业务任务和历史结果由 Java 持久化。
-- Java任务的 `Idempotency-Key` 和 Python的 `runId` 是两层机制，不能互相代替。
-- 版本错、超时、409冲突或服务不可用时，保留失败原因与审计。
-- 角色和对象权限在后端执行；患者摘要过滤数值排序、图权重及内部轨迹。
-
-### 前端成员
-
-在 `frontend/` 建立应用，按 Java 目标接口实现请求类型、路由、会话和页面。Java未完成时使用明确标记的 Mock；该功能联调前关闭 Mock，调用实际 Java接口。
-
-前端通过 Java访问业务，Python由后端调用。每页覆盖加载、空数据、失败、无权限状态；图谱区分激活和缺失，阻断结果展示原因。使用返回的阶段和耗时，避免按定时器虚构进度。
-
-## 7. 与 AI 一起开发
-
-在 AI编码工具中打开**克隆后的整个仓库目录**，让它先阅读 `AGENTS.md`、本文和对应模块说明，再提供具体任务。仅粘贴一张页面图不足以确定接口、权限和数据规则。
-
-每次完成一个可测试功能。复制以下通用提示，替换方括号内容：
-
-```text
-请先阅读 AGENTS.md、README.md、docs/Course_SRS_V3_2.md、
-docs/Integration_Contract.md 和我负责模块的 README。
-
-我的模块：[backend 或 frontend]
-本次需求：[需求编号和具体行为，例如 FR-AUTH-01 登录与当前用户]
-验收条件：[正常、参数错误、未登录/无权限、失败等场景]
-现有环境：[系统、语言版本、构建命令、数据库或接口地址]
-
-先检查代码和契约，说明实现步骤、需要改的文件及依赖。
-然后分步实现，运行相关测试，并根据实际失败修复。
-遵守现有路径、字段、版本和状态，不扩大到其他模块。
-若需改共同契约，指出原因与调用方影响，先由团队确定方案。
-完成后给出改动摘要、实际测试、未验证项和建议PR说明。
-不要把未执行的测试写成通过；不要代我推送或合并。
+```mermaid
+flowchart LR
+    Web["Web 前端（建设中）"] -. "业务 API" .-> Java["Java 后端（部分实现）"]
+    Java --> DB["MySQL 8（目标）/ H2（测试）"]
+    Java -. "AgentClient（待接入）" .-> Python["Python 合成服务 :8091"]
+    Python --> Workflow["融合 → 图谱 → 排序 → 解释"]
 ```
 
-首次后端任务可选“工程初始化、数据库迁移和档案接口”；首次前端任务可选“工程初始化、路由、登录页及四种状态”。详细的后端、前端、修复、代码评审和接续工作模板见 [AI协作指南](docs/AI_Collaboration.md)。
+| 接口 | 用途 | 契约 |
+| --- | --- | --- |
+| `GET /api/health` | 服务模式与版本 | [Python OpenAPI](contracts/python-agent.openapi.json) |
+| `POST /api/agent/v1/runs` | 同步执行一个合成请求 | 同上 |
+| `GET /api/agent/v1/runs/{runId}` | 查询进程内已有结果 | 同上 |
+| Java 业务 API | 会话、档案、任务、结果与业务管理 | [目标 OpenAPI](contracts/java-business.target.openapi.json)；逐项实现状态见后端说明 |
 
-AI完成代码后，自己检查 `git diff`、运行命令、看接口返回或页面，再继续下一段。AI帮助实现和检查，代码含义、测试证据及最终提交由开发成员负责。
+接入时须保留以下语义：
 
-## 8. 安装研发依赖与运行测试
+- 浏览器调用 Java，Java 调用 Python；用户权限、对象范围、业务任务和历史结果由 Java 管理。
+- Python 同步返回实际阶段与耗时，运行中不提供实时阶段推送。缓存仅存在于进程内，重启后清空。
+- 请求层接受 6–60 个月整数，当前规则只支持 24 个月。其他有效窗口或严重质量问题返回 `BLOCKED`，其分数必须为 `null`、等级为 `UNAVAILABLE`。
+- Java 的业务 `Idempotency-Key` 与 Python 的 `runId` 分别管理。同一 `runId`、同一请求重放返回原结果；同 ID 不同请求返回冲突。超时后先按原 ID 查询和核对，不自动换 ID 重发。
+- 模型、数据、工作流版本及日期、单位、缺失必须保留。患者摘要由 Java 过滤原始排序数值、图权重与内部轨迹。
+- 原生解释和图说明须符合固定规则；未知阶段 `summary` 字段、附加 `limitations` 及不符合原规则的说明会被语义校验拒绝，见[输出审查](docs/Python_Output_Review.md)。
 
-Windows：
+详细状态、错误映射及图到评分的关系见[联调约定](docs/Integration_Contract.md)。`python-demo-logistic-v1` 是保留的接口标识，实际课程计算为固定加性规则，不应据名称推断已训练逻辑回归。
+
+## 开发与测试
+
+### Python
+
+在仓库根目录安装测试依赖并运行：
 
 ```powershell
+# Windows PowerShell
 .venv/Scripts/python.exe -m pip install -r requirements-dev.lock
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-Linux/macOS：
-
 ```bash
+# Linux / macOS
 .venv/bin/python -m pip install -r requirements-dev.lock
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-测试覆盖 HTTP、OpenAPI、示例响应、阻断、输入校验、并发幂等、缓存、数据文件与患者摘要字段。GitHub [Actions](https://github.com/yanxiao07/AD-CausalRisk/actions)运行 Python 3.11/3.12检查。
+测试覆盖契约与 HTTP、阻断、版本、并发重放、缓存、融合来源、贡献重构、输出审查，以及合成研究工程工具的计算边界。测试不需要真实临床数据。
 
-CI目前覆盖 Python和共同契约。各成员应添加自己的构建、数据库/接口测试及组件/页面测试，并在模块说明记录命令。提交前运行自己模块的检查及受改动影响的共同测试。
+### Java
 
-## 9. 分支、提交与 PR
+在 `backend/` 执行 `.\mvnw.cmd -B -ntp verify`（Windows PowerShell）或 `./mvnw -B -ntp verify`（Linux / macOS）。Linux 首次使用可先执行 `chmod +x mvnw`。启动所需 profile、数据库变量、迁移与未验证事项见[后端说明](backend/README.md)。H2 测试通过不代表 MySQL 8 部署已验收。
 
-开始前确认工作区干净并同步 `main`：
+### 持续集成
 
-```bash
-git status
-git switch main
-git pull --ff-only origin main
-git switch -c backend/auth-and-subjects
-# 前端可使用 frontend/login-and-routing
-```
-
-完成一个功能后：
-
-```bash
-git diff
-git diff --check
-# 先运行模块测试，再提交相关文件
-git add backend
-git commit -m "Add authentication and subject management"
-git push -u origin backend/auth-and-subjects
-```
-
-在 GitHub创建 PR，`base` 选 `main`，`compare` 选本人分支；填写需求编号、实现、测试、截图或接口示例及未完成项。CI通过后交由团队评审合并。没有写权限时，先 Fork 到本人账号，在 Fork 中开发，再向本仓库提 PR。
-
-合并后，确认工作区没有未提交改动，再切回 `main` 并执行 `git pull --ff-only origin main`。有未提交文件时先提交到功能分支或按需保留，不要强制覆盖。更多冲突处理步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 10. 常见问题
-
-| 问题 | 检查与处理 |
+| 工作流 | 当前配置 |
 | --- | --- |
-| `No module named python_service` | 回到仓库根目录，使用虚拟环境执行 `-m python_service.server` |
-| 缺少 `jsonschema` / `openapi_spec_validator` | 在同一虚拟环境安装 `requirements-dev.lock` |
-| 8091端口占用 | 确认已有服务是否可用；改用 `--port 8092` 时同步 Java配置与调用地址 |
-| 请求400/415 | 检查 UTF-8 JSON、Content-Type、必需字段、单位、日期和版本 |
-| 请求409 | 检查契约/模型版本，以及是否用同一 `runId` 提交了不同内容 |
-| 返回 `BLOCKED` | 检查24个月窗口、核心认知输入、最近访视和同日冲突，展示 `warnings` |
-| Python重启后查询404 | 内存缓存已清空；历史结果从 Java数据库读取 |
-| 浏览器不能直接访问8091 | 由 Java后端调用 Python，前端访问 Java业务接口 |
-| 找不到 Java/前端工程 | 两个工程在各自模块目录创建，Python测试不会生成它们 |
-| `git push` 被拒绝 | 检查本人分支、权限和认证，不要强制覆盖共享分支 |
+| [Python service and contract checks](.github/workflows/python-base.yml) | Python 3.11 / 3.12，固定测试依赖，`unittest` |
+| [Java backend build and tests](.github/workflows/backend-build.yml) | JDK 21，Maven `verify`，H2 测试 |
 
-只提交源码、契约和必要示例。数据库密码、访问令牌、虚拟环境、运行日志、构建缓存和个人资料不应进入仓库。
+推送和 PR 会触发上述工作流；实际结果以 [GitHub Actions](https://github.com/yanxiao07/AD-CausalRisk/actions) 为准。前端工程完成后还需接入安装、构建与页面测试。
+
+## 文档导航
+
+| 主题 | 文档 |
+| --- | --- |
+| 需求与责任 | [课程 SRS](docs/Course_SRS_V3_2.md) · [业务设计](docs/Design_Guide.md) · [Python覆盖与缺口](docs/Python_Requirement_Status.md) |
+| 联调与故障 | [联调约定](docs/Integration_Contract.md) · [接口阶段验收](docs/Python_Interface_Acceptance.md) · [故障与只读恢复](docs/Python_Interop_Recovery.md) |
+| 数据与质量 | [CSV 预检](docs/Python_Csv_Preflight.md) · [质量报告](docs/Python_Quality_Review.md) · [特征融合](docs/Python_Feature_Fusion.md) |
+| 图与解释 | [核心结果校验](docs/Python_Core_Validation.md) · [图谱证据](docs/Python_Graph_Evidence.md) · [解释一致性](docs/Python_Explanation_Consistency.md) · [输出审查](docs/Python_Output_Review.md) |
+| 评估与缺失 | [构造预测评估](docs/Python_Prediction_Evaluation.md) · [缺失输入敏感性](docs/Python_Missingness_Sensitivity.md) |
+| 合成报告与批处理 | [课程报告](docs/Python_Course_Reports.md) · [合成批处理](docs/Python_Synthetic_Batches.md) · [演示报告适配](docs/Synthetic_Reports.md) |
+| 可选受控研究接入 | [运行时集成](docs/Research_Runtime_Integration.md) · [受控客户端](docs/Controlled_Research_Client.md) · [研究基底与验收](docs/Research_Backend_Acceptance.md) · [模型与任务反馈](docs/Model_And_Task_Feedback.md) |
+| 团队开发 | [贡献指南](CONTRIBUTING.md) · [AI 协作指南](docs/AI_Collaboration.md) · [助手规则](AGENTS.md) |
+
+可选研究接入依赖独立授权环境，普通克隆不会获得受限数据或研究模型；不影响上面的课程合成服务快速开始。
+
+## 仓库结构
+
+```text
+.
+├── python_service/       # 四阶段服务、客户端与工程工具
+├── backend/              # Java 业务后端与数据库迁移
+├── frontend/             # Web 前端建设目录
+├── contracts/            # 冻结契约与请求/响应示例
+├── fixtures/             # 合成档案、访视和特征
+├── tests/                # Python 与契约测试
+├── docs/                 # 需求、设计、联调和专题说明
+├── research_gateway/     # 可选研究接入适配
+├── .github/              # CI 工作流与 PR 模板
+├── CONTRIBUTING.md       # 协作流程
+└── AGENTS.md             # 编码助手约束
+```
+
+## 参与贡献
+
+欢迎通过 [Issues](https://github.com/yanxiao07/AD-CausalRisk/issues) 报告问题或讨论需求，通过 [Pull requests](https://github.com/yanxiao07/AD-CausalRisk/pulls) 提交实现。开始前阅读[贡献指南](CONTRIBUTING.md)和对应模块说明，确认需求编号、文件范围与验收条件。
+
+1. 从最新 `main` 创建功能分支；无仓库写权限时使用 Fork。
+2. 按模块完成一个可测试的变更，运行本模块及受影响的共同检查。
+3. 提交 PR，说明行为变化、对应需求、实际测试、兼容影响及未完成项，参照[PR 模板](.github/pull_request_template.md)。
+4. 经 CI 和评审后合并。共同契约变更先明确字段、版本和调用方影响，不用 Mock 或改写评分规则掩盖集成失败。
+
+分工保持清晰：Python 维护工作流与算法契约；Java 负责权限、持久化和业务 API；前端负责会话、页面与交互。AI 辅助开发同样需要人工核对差异与测试，工作规则见 [AGENTS.md](AGENTS.md)。
+
+## 路线图
+
+- [x] Python 合成四阶段服务、固定契约与请求/结果校验。
+- [x] CSV 预检、质量报告、原规则来源追溯及合成工程工具。
+- [x] Java 工程、迁移、认证、档案与访视基础接口。
+- [ ] Java 特征/导入/质控、持久化任务与实际 AgentClient。
+- [ ] Web 完整工程、业务页面、四角色视图与交互测试。
+- [ ] 业务复核、随访、授权报告、审计与患者结果过滤。
+- [ ] MySQL、浏览器及跨服务故障/重启历史的端到端验收。
+
+研究算法与科学验收单独跟踪：RF/XGBoost/GAT 公平比较、真实多模态融合、学习边稳定性和跨方法解释等尚未全面验收。详见[Python覆盖与缺口](docs/Python_Requirement_Status.md)。
+
+## 使用范围与许可
+
+仓库中的 `DEMO-*` 与 `SYNTHETIC_DEMO` 资料用于课程演示。真实来源数据、个人身份信息、凭据、模型授权材料及运行缓存不得随代码提交。教学报告和自动校验不代替医生人工复核、对象授权或临床验证。
+
+当前仓库尚未提供 `LICENSE` 文件，许可证方案待维护者确定。
