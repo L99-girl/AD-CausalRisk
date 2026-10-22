@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import math
 import re
 import time
 from datetime import date
 from typing import Any, Callable
+from .course_fusion import select_fusion
+from .course_graph import default_course_graph
 
 
 CONTRACT_VERSION = "deepagent-v1"
@@ -51,6 +54,7 @@ def validate_request(payload: dict[str, Any]) -> None:
     version = payload.get("dataVersion")
     if not isinstance(version, str) or not version.startswith("demo-") or len(version) > 100:
         raise AgentContractError("只接受 demo-* 数据版本")
+    _check_utf8(version, "数据版本")
     window = payload.get("predictionWindowMonths")
     if type(window) is not int or not 6 <= window <= 60:
         raise AgentContractError("预测窗口必须是 6 至 60 个月的整数")
@@ -64,6 +68,7 @@ def validate_request(payload: dict[str, Any]) -> None:
         _check_date(item.get("visitDate"), "访视日期")
         if not isinstance(item.get("visitCode"), str) or not item["visitCode"].strip() or len(item["visitCode"]) > 50:
             raise AgentContractError("访视编号无效")
+        _check_utf8(item["visitCode"], "访视编号")
         if item["visitCode"] in visit_codes:
             raise AgentContractError("访视编号重复")
         visit_codes.add(item["visitCode"])
@@ -104,10 +109,21 @@ def _check_date(value: Any, label: str) -> None:
         raise AgentContractError(f"{label}不能晚于今天")
 
 
+def _check_utf8(value: str, label: str) -> None:
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        raise AgentContractError(f"{label}必须是有效 UTF-8 文本") from None
+
+
 def _check_number(value: Any, label: str, lower: float | None, upper: float | None) -> None:
     if value is None:
         return
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    try:
+        finite = type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        finite = False
+    if not finite:
         raise AgentContractError(f"{label}必须是有限数字或 null")
     if lower is not None and value < lower or upper is not None and value > upper:
         raise AgentContractError(f"{label}超出允许范围")
@@ -116,6 +132,52 @@ def _check_number(value: Any, label: str, lower: float | None, upper: float | No
 def payload_digest(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def request_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate an owned snapshot before binding a digest or executing stages."""
+    try:
+        snapshot = copy.deepcopy(payload)
+    except (TypeError, ValueError, RecursionError):
+        raise AgentContractError("请求结构无效") from None
+    validate_request(snapshot)
+    return snapshot
+
+
+def _checked_result(payload: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    # Lazy import keeps the request contract independent during module loading.
+    from .course_protocol import CourseContract, validate_course_result
+    try:
+        validate_course_result(result, payload, CourseContract())
+    except Exception:
+        raise AgentContractError("工作流结果未通过一致性检查", 500, "ASSESSMENT_FAILED") from None
+    return result
+
+
+def _checked_tool(payload, score_tool, visits, features):
+    """An already-valid request failing inside its score tool is execution 500."""
+    try:
+        legacy = score_tool({
+            "contractVersion": "stage4-v1", "subjectCode": payload["subjectCode"],
+            "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"],
+            "predictionWindowMonths": payload["predictionWindowMonths"], "visits": visits,
+            "features": features,
+        })
+        identity = {"status": "ok", "contractVersion": "stage4-v1", "provider": "python-research-contract",
+                    "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"]}
+        if not isinstance(legacy, dict) or any(legacy.get(key) != value for key, value in identity.items()):
+            raise ValueError("score tool identity")
+        if not isinstance(legacy["warnings"], list) or not all(isinstance(row, str) for row in legacy["warnings"]):
+            raise ValueError("score tool warnings")
+        if legacy["qualityStatus"] != ("WARN" if legacy["warnings"] else "PASS"):
+            raise ValueError("score tool quality")
+        if not isinstance(legacy["explanations"], list) or not all(isinstance(row, dict) for row in legacy["explanations"]):
+            raise ValueError("score tool explanations")
+        if not {"score", "riskLevel"} <= legacy.keys():
+            raise ValueError("score tool fields")
+        return legacy
+    except Exception:
+        raise AgentContractError("评分工具执行或结果校验失败", 500, "ASSESSMENT_FAILED") from None
 
 
 def graph_scoring_inputs(
@@ -138,37 +200,27 @@ def graph_scoring_inputs(
 
 
 def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
-    validate_request(payload)
+    payload = request_snapshot(payload)
     stages: list[dict[str, Any]] = []
     warnings: list[str] = []
     start = time.perf_counter()
 
     # DATA_FUSION: preserve source dates, select only observations available at
     # the latest visit, and record missing modalities instead of imputing them.
-    visits = sorted(payload["visits"], key=lambda row: (row["visitDate"], row["visitCode"]))
-    latest = visits[-1] if visits else None
-    cutoff = latest["visitDate"] if latest else None
-    eligible = [f for f in payload["features"] if cutoff and f["recordedAt"] <= cutoff]
-    excluded_future = len(payload["features"]) - len(eligible)
+    selected = select_fusion(payload)
+    visits, latest, cutoff = selected["visits"], selected["latest"], selected["indexDate"]
+    excluded_future = selected["excludedPostIndexFeatures"]
     if excluded_future:
         warnings.append("索引访视之后采集的特征已排除，防止时间泄漏")
-    feature_map: dict[str, dict[str, Any]] = {}
-    duplicate_feature_values: dict[tuple[str, str], Any] = {}
-    conflicting_feature = False
-    for feature in sorted(eligible, key=lambda row: row["recordedAt"]):
-        key = (feature["featureName"], feature["recordedAt"])
-        if key in duplicate_feature_values and duplicate_feature_values[key] != feature["featureValue"]:
-            conflicting_feature = True
-        duplicate_feature_values[key] = feature["featureValue"]
-        if feature["featureValue"] is not None:
-            feature_map[feature["featureName"]] = feature
-    missing = [name for name in ("APOE_E4_COUNT", "MRI_HIPPOCAMPUS_L", "MRI_HIPPOCAMPUS_R") if name not in feature_map]
+    feature_map = selected["features"]
+    conflicting_feature = selected["conflictingFeatures"]
+    missing = selected["missingModalities"]
     if missing:
         warnings.append("部分遗传或 MRI 指标缺失，图谱对应路径标为 MISSING")
-    has_cognition = latest is not None and any(latest.get(key) is not None for key in ("mmse", "moca", "cdrSb"))
-    ambiguous_latest = latest is not None and sum(row["visitDate"] == cutoff for row in visits) > 1
-    unsupported_window = payload["predictionWindowMonths"] != 24
-    blocked = not has_cognition or ambiguous_latest or conflicting_feature or unsupported_window
+    has_cognition = selected["hasCognition"]
+    ambiguous_latest = selected["ambiguousIndex"]
+    unsupported_window = selected["unsupportedWindow"]
+    blocked = selected["blocked"]
     if ambiguous_latest:
         warnings.append("最近访视日期对应多个记录，索引访视无法唯一确定")
     if conflicting_feature:
@@ -182,40 +234,20 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
     if blocked:
         if not has_cognition:
             warnings.append("缺少可用的核心认知访视，风险排序已阻断")
-        return _result(payload, "BLOCKED", "DATA_FUSION", "BLOCKED", None, "UNAVAILABLE", warnings,
-                       {"nodes": [], "edges": [], "paths": []}, [], stages, missing)
+        return _checked_result(payload, _result(payload, "BLOCKED", "DATA_FUSION", "BLOCKED", None, "UNAVAILABLE", warnings,
+                       {"nodes": [], "edges": [], "paths": []}, [], stages, missing))
 
     # CAUSAL_GRAPH: a fixed, transparent prior graph with per-subject activation.
     tic = time.perf_counter()
-    nodes = [{"id": "COGNITION", "label": "认知状态", "status": "ACTIVE", "evidenceLevel": "PRIOR"},
-             {"id": "WARNING", "label": "研究型风险排序", "status": "ACTIVE", "evidenceLevel": "MODEL"}]
-    for name, label in (("APOE_E4_COUNT", "APOE ε4"), ("MRI_HIPPOCAMPUS_L", "左海马 MRI"),
-                        ("MRI_HIPPOCAMPUS_R", "右海马 MRI")):
-        nodes.append({"id": name, "label": label, "status": "ACTIVE" if name in feature_map else "MISSING",
-                      "evidenceLevel": "PRIOR", "observedAt": feature_map.get(name, {}).get("recordedAt")})
-    edge_specs = (("APOE_E4_COUNT", "COGNITION"), ("MRI_HIPPOCAMPUS_L", "COGNITION"),
-                  ("MRI_HIPPOCAMPUS_R", "COGNITION"), ("COGNITION", "WARNING"))
-    edges = [{"from": source, "to": target,
-              "status": "ACTIVE" if source == "COGNITION" or source in feature_map else "MISSING",
-              "evidenceLevel": "PRIOR", "direction": "CONDITIONAL",
-              "note": "研究先验约束路径，不代表已识别的个体因果效应"} for source, target in edge_specs]
-    paths = [{"nodes": [edge["from"], edge["to"]], "status": edge["status"],
-              "evidenceLevel": edge["evidenceLevel"]} for edge in edges]
-    graph = {"nodes": nodes, "edges": edges, "paths": paths, "graphVersion": "synthetic-prior-v1"}
+    graph = default_course_graph(feature_map)
+    paths = graph["paths"]
     stages.append(_stage("CAUSAL_GRAPH", "COMPLETED", tic, {"activePaths": sum(p["status"] == "ACTIVE" for p in paths)}))
 
     # WARNING_MODEL: active graph nodes/edges gate the canonical observations.
     # This does not estimate causal effects or change the demo scoring formula.
     tic = time.perf_counter()
     scoring_visits, scoring_features = graph_scoring_inputs(visits, feature_map, graph)
-    legacy = score_tool({
-        "contractVersion": "stage4-v1", "subjectCode": payload["subjectCode"],
-        "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"],
-        "predictionWindowMonths": payload["predictionWindowMonths"], "visits": scoring_visits,
-        "features": scoring_features,
-    })
-    if legacy["qualityStatus"] == "BLOCKED":
-        raise AgentContractError("评分工具与融合质量闸门不一致", 500, "ASSESSMENT_FAILED")
+    legacy = _checked_tool(payload, score_tool, scoring_visits, scoring_features)
     score = legacy["score"]
     warnings.extend(legacy["warnings"])
     stages.append(_stage("WARNING_MODEL", "COMPLETED", tic, {"method": "graph-masked-synthetic-rule-v1"}))
@@ -227,8 +259,8 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
         item["source"] = "graph-masked-synthetic-rule-v1"
     stages.append(_stage("EXPLANATION", "COMPLETED", tic, {"contributionCount": len(explanations)}))
     quality = "WARN" if warnings else "PASS"
-    return _result(payload, "COMPLETED", "EXPLANATION", quality, score,
-                   legacy["riskLevel"], list(dict.fromkeys(warnings)), graph, explanations, stages, missing)
+    return _checked_result(payload, _result(payload, "COMPLETED", "EXPLANATION", quality, score,
+                   legacy["riskLevel"], list(dict.fromkeys(warnings)), graph, explanations, stages, missing))
 
 
 def _stage(name: str, status: str, started: float, summary: dict[str, Any]) -> dict[str, Any]:
@@ -245,6 +277,6 @@ def _result(payload: dict[str, Any], status: str, current_stage: str, quality: s
         "dataVersion": payload["dataVersion"], "modelVersion": payload["modelVersion"],
         "qualityStatus": quality, "riskScore": score, "riskLevel": level,
         "warnings": warnings, "graph": graph, "explanations": explanations,
-        "missingModalities": missing, "limitations": LIMITATIONS, "stages": stages,
+        "missingModalities": missing, "limitations": list(LIMITATIONS), "stages": stages,
         "dataSource": "SYNTHETIC_DEMO", "reviewRequired": True,
     }

@@ -11,6 +11,7 @@ import json
 import math
 import re
 from .deepagent_contract import CONTRACT_VERSION, MODEL_VERSION, FEATURES, validate_request
+from .course_fusion import select_fusion
 
 TABLES = {
     'subjects': ('subjectCode', 'alias', 'status'),
@@ -53,35 +54,10 @@ def quality_summary(payload):
     original run_workflow; these fields are preview evidence, not AgentResult.
     """
     validate_request(payload)
-    visits = sorted(payload['visits'], key=lambda row: (row['visitDate'], row['visitCode']))
-    latest = visits[-1] if visits else None
-    cutoff = latest['visitDate'] if latest else None
-    eligible = [row for row in payload['features'] if cutoff and row['recordedAt'] <= cutoff]
-    selected, seen, conflicts = {}, {}, False
-    for row in sorted(eligible, key=lambda row: row['recordedAt']):
-        key = (row['featureName'], row['recordedAt'])
-        conflicts |= key in seen and seen[key] != row['featureValue']
-        seen[key] = row['featureValue']
-        if row['featureValue'] is not None:
-            selected[row['featureName']] = row
-    missing = [name for name in sorted(FEATURES) if name not in selected]
-    reasons = []
-    if not latest or not any(latest.get(key) is not None for key in ('mmse', 'moca', 'cdrSb')):
-        reasons.append('CORE_COGNITION_MISSING')
-    if latest and sum(row['visitDate'] == cutoff for row in visits) > 1:
-        reasons.append('AMBIGUOUS_INDEX_VISIT')
-    if conflicts:
-        reasons.append('CONFLICTING_FEATURE_VALUES')
-    if payload['predictionWindowMonths'] != 24:
-        reasons.append('UNSUPPORTED_WINDOW')
-    excluded = len(payload['features']) - len(eligible)
-    warnings = []
-    if excluded:
-        warnings.append('POST_INDEX_FEATURES_EXCLUDED')
-    if missing:
-        warnings.append('MISSING_MODALITIES')
-    if latest and any(latest.get(key) is None for key in ('mmse', 'moca', 'cdrSb')):
-        warnings.append('PARTIAL_COGNITION')
+    selected = select_fusion(payload)
+    cutoff, missing = selected['indexDate'], selected['missingModalities']
+    reasons, warnings = selected['blockingReasons'], selected['warningCodes']
+    excluded = selected['excludedPostIndexFeatures']
     return {'subjectCode': payload['subjectCode'], 'qualityStatus': 'BLOCKED' if reasons else 'WARN' if warnings else 'PASS',
             'qualityRuleVersion': QUALITY_VERSION, 'indexDate': cutoff, 'missingModalities': missing,
             'excludedPostIndexFeatures': excluded, 'blockingReasons': reasons, 'warningCodes': warnings,
