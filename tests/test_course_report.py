@@ -83,16 +83,19 @@ class CourseReportTests(unittest.TestCase):
         request,result=pair(); result['unwantedSecret']='MUST_NOT_COPY'
         with self.assertRaises(CourseReportError): build_course_report(request,result)
 
-    def test_unrecognized_stage_summary_metadata_is_not_copied(self):
+    def test_unrecognized_stage_summary_metadata_is_rejected(self):
         request,result=pair(); result['stages'][1]['summary']['unwantedSecret']='MUST_NOT_COPY'
-        self.assertNotIn('MUST_NOT_COPY',json.dumps(build_course_report(request,result)))
+        with self.assertRaises(CourseReportError): build_course_report(request,result)
 
-    def test_html_escapes_untrusted_source_code_warnings_and_limitations(self):
+    def test_html_escapes_untrusted_source_code(self):
         request,result=pair(); request['visits'][0]['visitCode']='<script>alert(1)</script>'
-        result['limitations'].append('<img src=x onerror=alert(1)>')
         html=render_course_html(request,result)
-        self.assertNotIn('<script>',html);self.assertNotIn('<img src=x',html)
-        self.assertIn('&lt;script&gt;',html);self.assertIn('&lt;img',html)
+        self.assertNotIn('<script>',html)
+        self.assertIn('&lt;script&gt;',html)
+
+    def test_unreviewed_html_in_limitations_is_rejected_before_rendering(self):
+        request,result=pair(); result['limitations'].append('<img src=x onerror=alert(1)>')
+        with self.assertRaises(CourseReportError): render_course_html(request,result)
 
     def test_null_and_zero_source_values_are_not_merged_or_rounded(self):
         request,_=pair(); request['visits'][0]['mmse']=None; request['visits'][-1]['mmse']=0

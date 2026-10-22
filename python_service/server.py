@@ -13,8 +13,9 @@ from urllib.parse import urlsplit,unquote
 from uuid import uuid4
 
 from .deepagent_contract import (CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,
-    AgentContractError,validate_request,payload_digest,run_workflow)
+    AgentContractError,request_snapshot,payload_digest,run_workflow)
 from .demo_scoring import ContractError,score_java_synthetic_payload
+from .course_protocol import CourseContract,validate_course_result
 
 MAX_BODY=128*1024
 REJECT_DRAIN_BYTES=MAX_BODY*2
@@ -26,7 +27,7 @@ class RunStore:
     def __init__(self,capacity=1000):
         self.capacity=capacity;self.runs={};self.lock=threading.RLock()
     def create(self,payload):
-        validate_request(payload)
+        payload=request_snapshot(payload)
         # Wire dates use the ISO calendar form declared in OpenAPI.
         for row,key in [(x,'visitDate') for x in payload['visits']]+[(x,'recordedAt') for x in payload['features']]:
             if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',row[key]):raise AgentContractError('日期应为YYYY-MM-DD')
@@ -38,7 +39,9 @@ class RunStore:
                 return copy.deepcopy(result)
             if len(self.runs)>=self.capacity:raise AgentContractError('本机演示缓存已满，请由Java保存历史结果',503,'RUN_CAPACITY_REACHED')
             result=run_workflow(payload,score_java_synthetic_payload)
-            self.runs[run_id]=(digest,result)
+            try:validate_course_result(result,payload,CourseContract())
+            except Exception:raise AgentContractError('工作流结果校验失败，未保存可用结果',500,'ASSESSMENT_FAILED') from None
+            self.runs[run_id]=(digest,copy.deepcopy(result))
             return copy.deepcopy(result)
     def get(self,run_id):
         with self.lock:
