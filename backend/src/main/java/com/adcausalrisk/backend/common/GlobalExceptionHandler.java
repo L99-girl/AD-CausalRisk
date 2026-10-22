@@ -4,15 +4,19 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.validation.ConstraintViolationException;
@@ -97,6 +101,46 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     ResponseEntity<Envelope<Void>> handleNoRoute(NoResourceFoundException exception) {
         return respond(ErrorCode.NOT_FOUND, null);
+    }
+
+    /**
+     * A required header is missing - for an import preview that is {@code Idempotency-Key}.
+     * Without this handler the catch-all would disguise the refusal as a 500.
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<Envelope<Void>> handleMissingHeader(MissingRequestHeaderException exception) {
+        return respond(ErrorCode.VALIDATION_ERROR, exception.getHeaderName() + " 不能为空");
+    }
+
+    /** A required multipart part is missing - for an import preview that is {@code file}. */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    ResponseEntity<Envelope<Void>> handleMissingPart(MissingServletRequestPartException exception) {
+        return respond(ErrorCode.VALIDATION_ERROR, exception.getRequestPartName() + " 不能为空");
+    }
+
+    /**
+     * The upload exceeded {@code spring.servlet.multipart.max-file-size}. The target contract
+     * declares no 413 for any operation, so an oversized upload is reported as a validation
+     * failure like every other refused request - never as a 500.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Envelope<Void>> handleOversizedUpload(MaxUploadSizeExceededException exception) {
+        log.debug("upload rejected because it exceeded the configured limit", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "上传文件超过大小限制");
+    }
+
+    /**
+     * A database constraint rejected the write. For the import commit this means the data moved
+     * between preview and commit (a subject was deleted, a code was taken) or otherwise conflicts
+     * with what is already stored. The contract declares no 409, so it is reported as a
+     * validation failure - and never as a 500.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<Envelope<Void>> handleIntegrityViolation(
+            DataIntegrityViolationException exception) {
+        log.debug("database constraint rejected the write", exception);
+        return respond(ErrorCode.VALIDATION_ERROR,
+                "数据在预览后发生变化或与现有数据冲突，请重新预览");
     }
 
     @ExceptionHandler(Exception.class)

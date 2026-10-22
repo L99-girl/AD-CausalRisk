@@ -1,0 +1,32 @@
+-- ============================================================================
+-- Give an import job everything it needs to preview once and commit later.
+--
+-- The baseline table could record counts and an error report, but not:
+--   * which of the three tables the uploaded CSV contained (the contract's request body is
+--     just `file`, so the server infers it from the header row),
+--   * the rows that passed the preview, which `commit` has to insert (the upload is not kept
+--     in memory between the two calls),
+--   * a digest of the uploaded bytes, needed to tell "same Idempotency-Key, same file" from
+--     "same Idempotency-Key, different file".
+--
+-- DESIGN
+--   import_type    - SUBJECT | VISIT | FEATURE, decided by the exact CSV header row.
+--   preview_csv    - the uploaded text exactly as received, so the commit re-parses the same
+--                    bytes that were previewed instead of trusting a second upload. Cleared as
+--                    soon as the job reaches a terminal state, so raw uploads are not retained.
+--   source_digest  - SHA-256 (hex) of the uploaded bytes; 64 characters, matching the width
+--                    used by idempotency_record.request_digest.
+--
+-- PORTABILITY
+--   ADD COLUMN works on MySQL 8 and H2 2.x in MODE=MySQL (verified on H2 2.3.232). H2 maps
+--   TEXT to CHARACTER VARYING (not CLOB) in that mode, so the entity can map the column as a
+--   plain String. TEXT holds 65535 bytes on MySQL, comfortably above the 30000-byte CSV cap the
+--   importer enforces, and the column is only ever written with text that already passed it.
+--
+--   No CHECK is added for import_type: ALTER TABLE ... ADD CONSTRAINT CHECK differs between the
+--   two engines, and the value set is owned by the parser's table enum. NULL is allowed so rows
+--   created before this migration stay valid.
+-- ============================================================================
+ALTER TABLE data_import_job ADD COLUMN import_type VARCHAR(20) NULL;
+ALTER TABLE data_import_job ADD COLUMN preview_csv TEXT NULL;
+ALTER TABLE data_import_job ADD COLUMN source_digest VARCHAR(64) NULL;
