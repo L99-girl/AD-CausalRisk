@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import copy
+from dataclasses import dataclass, field
 from datetime import date,datetime,timezone
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import json
@@ -23,30 +24,85 @@ REJECT_DRAIN_SECONDS=0.1
 HTTP_API_VERSION='course-agent-http-v1'
 
 
+def _execution_failed():
+    return AgentContractError('工作流执行或结果校验失败，未保存可用结果',500,'ASSESSMENT_FAILED')
+
+
+@dataclass
+class _PendingRun:
+    digest: str
+    done: threading.Event = field(default_factory=threading.Event)
+    result: dict | None = None
+
+    def wait_result(self):
+        # This is the original synchronous POST, not another workflow attempt.
+        self.done.wait()
+        if self.result is None:
+            raise _execution_failed()
+        return copy.deepcopy(self.result)
+
+
 class RunStore:
+    """Volatile completed results and bounded, per-run execution reservations."""
+
     def __init__(self,capacity=1000):
-        self.capacity=capacity;self.runs={};self.lock=threading.RLock()
+        self.capacity=capacity
+        self.runs={}
+        self._pending={}
+        self.lock=threading.RLock()
+
     def create(self,payload):
         payload=request_snapshot(payload)
-        # Wire dates use the ISO calendar form declared in OpenAPI.
-        for row,key in [(x,'visitDate') for x in payload['visits']]+[(x,'recordedAt') for x in payload['features']]:
-            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',row[key]):raise AgentContractError('日期应为YYYY-MM-DD')
-        digest=payload_digest(payload);run_id=payload['runId']
+        digest=payload_digest(payload)
+        run_id=payload['runId']
         with self.lock:
-            if run_id in self.runs:
-                old,result=self.runs[run_id]
-                if old!=digest:raise AgentContractError('runId已用于不同请求',409,'RUN_ID_CONFLICT')
-                return copy.deepcopy(result)
-            if len(self.runs)>=self.capacity:raise AgentContractError('本机演示缓存已满，请由Java保存历史结果',503,'RUN_CAPACITY_REACHED')
-            result=run_workflow(payload,score_java_synthetic_payload)
-            try:validate_course_result(result,payload,CourseContract())
-            except Exception:raise AgentContractError('工作流结果校验失败，未保存可用结果',500,'ASSESSMENT_FAILED') from None
-            self.runs[run_id]=(digest,copy.deepcopy(result))
+            cached=self.runs.get(run_id)
+            pending=self._pending.get(run_id)
+            if cached is not None:
+                old,result=cached
+                if old!=digest:
+                    raise AgentContractError('runId已用于不同请求',409,'RUN_ID_CONFLICT')
+            elif pending is not None:
+                if pending.digest!=digest:
+                    raise AgentContractError('runId已用于不同请求',409,'RUN_ID_CONFLICT')
+            else:
+                if len(self.runs)+len(self._pending)>=self.capacity:
+                    raise AgentContractError('本机演示缓存已满，请由Java保存历史结果',503,'RUN_CAPACITY_REACHED')
+                flight=_PendingRun(digest)
+                self._pending[run_id]=flight
+        # No computation, result validation, copying or waiting holds the
+        # store lock. Unrelated POSTs and completed GETs remain independent.
+        if cached is not None:
             return copy.deepcopy(result)
+        if pending is not None:
+            return pending.wait_result()
+        try:
+            # Take ownership before validation, so the exact checked object
+            # becomes the cache entry rather than a later copy of tool state.
+            result=copy.deepcopy(run_workflow(payload,score_java_synthetic_payload))
+            validate_course_result(result,payload,CourseContract())
+        except BaseException as error:
+            # Wake every existing follower even on process/thread interruption.
+            # Failed executions occupy no cache slot and followers never retry.
+            with self.lock:
+                del self._pending[run_id]
+                flight.done.set()
+            if not isinstance(error,Exception):
+                raise
+            raise _execution_failed() from None
+        with self.lock:
+            self.runs[run_id]=(digest,result)
+            flight.result=result
+            del self._pending[run_id]
+            flight.done.set()
+        return copy.deepcopy(result)
+
     def get(self,run_id):
         with self.lock:
-            if run_id not in self.runs:raise AgentContractError('runId不存在；演示缓存重启后清空',404,'RUN_NOT_FOUND')
-            return copy.deepcopy(self.runs[run_id][1])
+            if run_id not in self.runs:
+                raise AgentContractError('runId不存在；演示缓存重启后清空',404,'RUN_NOT_FOUND')
+            result=self.runs[run_id][1]
+        return copy.deepcopy(result)
 
 
 class AgentServer(ThreadingHTTPServer):
