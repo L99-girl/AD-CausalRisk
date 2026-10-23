@@ -10,8 +10,8 @@ import re
 import time
 from datetime import date
 from typing import Any, Callable
-from .course_fusion import select_fusion
-from .course_graph import default_course_graph
+from .course_fusion import select_fusion, validate_fusion_selection
+from .course_graph import default_course_graph, validate_default_course_graph
 
 
 CONTRACT_VERSION = "deepagent-v1"
@@ -154,15 +154,42 @@ def _checked_result(payload: dict[str, Any], result: dict[str, Any]) -> dict[str
     return result
 
 
+def _checked_stage(tool, arguments, validator):
+    """Own stage inputs/output and reject errors before the next tool runs."""
+    try:
+        owned = copy.deepcopy(arguments)
+        before = payload_digest(owned)
+        output = copy.deepcopy(tool(*owned))
+        if payload_digest(owned) != before:
+            raise ValueError('stage changed its input')
+        validator(output)
+        return output
+    except Exception:
+        raise AgentContractError('阶段工具执行或证据校验失败', 500, 'ASSESSMENT_FAILED') from None
+
+
+def _validate_scoring_inputs(inputs, visits, feature_map):
+    # The workflow has already checked the fixed graph: every supplied
+    # canonical feature has its original ACTIVE route. The public gating
+    # helper still supports separate node/edge mask inspection.
+    expected = (visits, [feature_map[name] for name in sorted(feature_map)])
+    if type(inputs) is not tuple or len(inputs) != 2 or payload_digest(inputs) != payload_digest(expected):
+        raise ValueError('gated observations differ from checked sources')
+
+
 def _checked_tool(payload, score_tool, visits, features):
     """An already-valid request failing inside its score tool is execution 500."""
     try:
-        legacy = score_tool({
+        tool_input = copy.deepcopy({
             "contractVersion": "stage4-v1", "subjectCode": payload["subjectCode"],
             "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"],
             "predictionWindowMonths": payload["predictionWindowMonths"], "visits": visits,
             "features": features,
         })
+        before = payload_digest(tool_input)
+        legacy = copy.deepcopy(score_tool(tool_input))
+        if payload_digest(tool_input) != before:
+            raise ValueError('score tool changed its input')
         identity = {"status": "ok", "contractVersion": "stage4-v1", "provider": "python-research-contract",
                     "modelVersion": "python-demo-logistic-v1", "dataVersion": payload["dataVersion"]}
         if not isinstance(legacy, dict) or any(legacy.get(key) != value for key, value in identity.items()):
@@ -207,7 +234,8 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
 
     # DATA_FUSION: preserve source dates, select only observations available at
     # the latest visit, and record missing modalities instead of imputing them.
-    selected = select_fusion(payload)
+    selected = _checked_stage(select_fusion, (payload,),
+                              lambda value: validate_fusion_selection(value, payload))
     visits, latest, cutoff = selected["visits"], selected["latest"], selected["indexDate"]
     excluded_future = selected["excludedPostIndexFeatures"]
     if excluded_future:
@@ -239,14 +267,17 @@ def run_workflow(payload: dict[str, Any], score_tool: Callable[[dict[str, Any]],
 
     # CAUSAL_GRAPH: a fixed, transparent prior graph with per-subject activation.
     tic = time.perf_counter()
-    graph = default_course_graph(feature_map)
+    graph = _checked_stage(default_course_graph, (feature_map,),
+                           lambda value: validate_default_course_graph(value, feature_map))
     paths = graph["paths"]
     stages.append(_stage("CAUSAL_GRAPH", "COMPLETED", tic, {"activePaths": sum(p["status"] == "ACTIVE" for p in paths)}))
 
     # WARNING_MODEL: active graph nodes/edges gate the canonical observations.
     # This does not estimate causal effects or change the demo scoring formula.
     tic = time.perf_counter()
-    scoring_visits, scoring_features = graph_scoring_inputs(visits, feature_map, graph)
+    scoring_visits, scoring_features = _checked_stage(
+        graph_scoring_inputs, (visits, feature_map, graph),
+        lambda value: _validate_scoring_inputs(value, visits, feature_map))
     legacy = _checked_tool(payload, score_tool, scoring_visits, scoring_features)
     score = legacy["score"]
     warnings.extend(legacy["warnings"])

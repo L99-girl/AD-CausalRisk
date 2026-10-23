@@ -68,6 +68,17 @@ class FusionError(ValueError):
         super().__init__(code)
 
 
+def validate_fusion_selection(selection, payload):
+    """Check a stage snapshot against the unchanged deterministic selection.
+
+    This verifies tool consistency with supplied observations, not source
+    authenticity, historical availability or a research baseline definition.
+    """
+    _require(type(selection) is dict, 'FUSION_SELECTION')
+    _require(_input_digest(selection) == _input_digest(select_fusion(payload)), 'FUSION_SELECTION')
+    return selection
+
+
 def _require(condition, code):
     if not condition:
         raise FusionError(code)
