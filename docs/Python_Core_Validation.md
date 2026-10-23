@@ -35,6 +35,10 @@
 
 ### 调用端请求绑定
 
+错误响应也绑定具体操作和HTTP状态：POST仅接受原400/VALIDATION_400、408/REQUEST_TIMEOUT、409/AGENT_CONTRACT_MISMATCH或RUN_ID_CONFLICT、413/PAYLOAD_TOO_LARGE、415/UNSUPPORTED_MEDIA_TYPE、500/ASSESSMENT_FAILED、503/RUN_CAPACITY_REACHED。结果GET保留400验证错误及404原run/route错误；健康GET不接受RUN_NOT_FOUND，因为它没有查询runId。
+
+Schema合法但状态/错误码错配或未经支持的新错误码按既有ERROR_CONTRACT拒绝。POST已经发送时保留结果未知和原绑定，仅GET核对；健康响应失败不建立绑定、不POST，不能据此记原run缓存缺失。真正结果GET的404/RUN_NOT_FOUND仍为CACHE_MISS，executionOccurred仍未知。合法错误组合只证明声明符合本地接口政策，不认证服务身份、实际执行或Java业务提交状态；新错误码需先评审调用方映射。
+
 `CourseClient.create`在入口复制并校验请求，随后在任何健康探测、绑定登记或HTTP调用前完成trace与JSON字节预检。发送的字节、本地runId绑定和响应校验使用同一份入口快照。调用者在健康检查或响应等待期间改写原字典，不改变本次授权输入；`result(expected_request=...)`也先复制显式校验基准。局部快照不认证原始来源或实际训练信息。
 
 无效请求、trace、序列化或字节上限在本地拒绝，不发送请求或留下未提交绑定。健康检查失败也不登记绑定。发送已开始后的超时、断线或不可验证响应保留原快照及结果未知标志，供原runId的GET核对；不自动POST、换runId或生成替代结果。已知runId冲突仍沿原HTTP流程处理。
@@ -79,3 +83,5 @@ RunStore按runId共享正在执行的计算，计算/校验/等待期间不持�
 `test_course_request_identity.py`覆盖精确数值等价的完成/执行中重放、一次成功/失败共享、容量、客户端GET、首个请求/内容摘要保持，以及相邻浮点同分冲突、严格整数和阶段内容改写拒绝。
 
 `test_course_optional_values.py`覆盖冻结Schema允许的64种六信号省略组合、显式null对照、原时间/冲突/回退政策、来源指针、矩阵字段存在性、缺失计划/比较及实际HTTP重放；不改变Schema来排除合法缺失输入。
+
+`test_course_error_binding.py`覆盖原错误组合及状态/码交叉错配、健康404误标缓存缺失、实际POST已缓存后异常错误响应的GET恢复、真正缓存缺失与BLOCKED保持。

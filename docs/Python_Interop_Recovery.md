@@ -62,6 +62,8 @@ Java调用方应发送实际UTF-8 JSON，Content-Type唯一且charset省略或�
 | CACHE_MISS | 只有404/RUN_NOT_FOUND才为缓存缺失；可能是重启/从未运行/其他进程，执行是否发生仍未知，查询Java持久历史 |
 | LOOKUP_FAILED | 传输、绑定、契约、解析或其他HTTP失败；不是缓存缺失，也不是成功，保留错误并人工核对 |
 
+客户端按原实现将错误码与HTTP状态及操作一起校验。健康GET收到404/RUN_NOT_FOUND属于错误契约，不是原run缓存缺失；恢复结果为LOOKUP_FAILED且不继续结果GET或POST。POST的错误码若与状态不符，或者出现未支持的新错误码，则为ERROR_CONTRACT并保留结果未知/原绑定，仅按原runId GET核对。正常原状态/错误码组合保持，详见[调用端请求绑定](Python_Core_Validation.md#调用端请求绑定)。这些检查不认证上游执行真实性。
+
 所有结果都保持`businessHistoryRequired=true`、`executionOccurred=null`、`resubmissionAuthorized=false`，核对不作新的提交授权。Java沿用原任务状态；可在FAILED及审计中保留“上游结果未确认”，不需要为此改共同DTO或新增一个Python状态。错误不携带任意服务正文；缺失/失败的报告没有输入量表或特征值。
 
 文件工具：

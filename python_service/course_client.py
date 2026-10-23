@@ -13,6 +13,14 @@ from .deepagent_contract import CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,
 MAX_RESPONSE=2*1024*1024
 MAX_REQUEST=128*1024
 TRACE_RE=re.compile(r'[A-Za-z0-9._-]{1,64}\Z')
+# These are the implemented operations' rejection semantics, not just the
+# wire schema's unconstrained code string. New peer errors need review.
+POST_ERROR_CODES={400:{'VALIDATION_400'},408:{'REQUEST_TIMEOUT'},
+                  409:{'AGENT_CONTRACT_MISMATCH','RUN_ID_CONFLICT'},
+                  413:{'PAYLOAD_TOO_LARGE'},415:{'UNSUPPORTED_MEDIA_TYPE'},
+                  500:{'ASSESSMENT_FAILED'},503:{'RUN_CAPACITY_REACHED'}}
+GET_ERROR_CODES={400:{'VALIDATION_400'},404:{'RUN_NOT_FOUND','ROUTE_NOT_FOUND'}}
+HEALTH_ERROR_CODES={400:{'VALIDATION_400'},404:{'ROUTE_NOT_FOUND'}}
 
 
 class CourseClientError(RuntimeError):
@@ -89,10 +97,11 @@ class CourseClient:
             data=decode_json(raw)
             require(response.headers.get_all('X-Trace-Id')==[trace_id],'RESPONSE_TRACE')
             if status!=200:
-                allowed={400,408,409,413,415,500,503} if post else {400,404}
-                require(status in allowed,'UNEXPECTED_HTTP_STATUS')
+                codes=POST_ERROR_CODES if post else HEALTH_ERROR_CODES if path=='/api/health' else GET_ERROR_CODES
+                require(status in codes,'UNEXPECTED_HTTP_STATUS')
                 self.contract.validate('AgentError',data)
-                require(data['traceId']==trace_id and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}',data['code']) is not None,'ERROR_CONTRACT')
+                require(data['traceId']==trace_id and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}',data['code']) is not None
+                        and data['code'] in codes[status],'ERROR_CONTRACT')
                 raise CourseClientError(data['code'],status)
             return data
         except CourseClientError:raise
