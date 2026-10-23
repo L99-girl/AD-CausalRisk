@@ -91,7 +91,7 @@ def prepare_missingness_requests(requests, run_ids, *, granularity='MODALITY'):
                         erased[field] += 1
             retained = [(index + 1, row) for index, row in enumerate(body['features']) if row['featureName'] not in features]
             removed_rows = len(body['features']) - len(retained)
-            removed_values = sum(row['featureName'] in features and row['featureValue'] is not None for row in body['features'])
+            removed_values = sum(row['featureName'] in features and row.get('featureValue') is not None for row in body['features'])
             body['features'] = [row for _, row in retained]
             scenario = {'subjectCode': base['subjectCode'], 'baselineRunId': base['runId'],
                 'baselineRequestSha256': payload_digest(base), 'mask': mask,

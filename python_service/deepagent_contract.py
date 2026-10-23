@@ -149,7 +149,7 @@ def request_identity_digest(payload: dict[str, Any]) -> str:
             if type(value) is float and value.is_integer():
                 visit[name] = int(value)
     for feature in identity['features']:
-        value = feature['featureValue']
+        value = feature.get('featureValue')
         if feature['featureName'] in {'MRI_HIPPOCAMPUS_L', 'MRI_HIPPOCAMPUS_R'} and type(value) is float and value.is_integer():
             feature['featureValue'] = int(value)
     return payload_digest(identity)

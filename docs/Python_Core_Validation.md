@@ -21,6 +21,12 @@
 
 ## 执行与缓存边界
 
+### 可选数值缺失
+
+原AgentRequest允许省略访视的`mmse/moca/cdrSb`及特征的`featureValue`。省略值按缺失参与原融合/警告/阻断：不补0、不从旧访视补齐最新认知；特征较晚缺失仍保留早先非空值，同日缺失与非空值仍冲突，左MRI缺失仍可用右侧。没有任何核心认知时只执行DATA_FUSION并返回BLOCKED/null/UNAVAILABLE。
+
+缺省读取不改写原字典；省略和显式null在原内容/请求身份摘要中仍不同，同runId不能互换。来源路径只引用实际存在且非空的观测；描述矩阵在字段本身不存在的来源位置增加`fieldPresent=false`，显式null和已有完整来源结构保持。缺失敏感性分别统计移除行数和实际非空值数；既有报告显示省略值为缺失，原JSON来源仍不补字段。必填字段、数值范围和严格整数规则不变。
+
 ### HTTP正文表示
 
 请求和响应使用唯一的`Content-Type: application/json`，charset可以省略或为单个`UTF-8`，大小写及标准引号不影响判断。重复charset（即使值相同）、扩展charset及其他字符集拒绝；`Content-Encoding`可以省略或为唯一`identity`，重复编码、压缩和编码链均不接受。实际正文必须为UTF-8 JSON，不猜测UTF-16/32；带BOM的JSON也拒绝。原Content-Length、大小、重复JSON键、trace和结果语义检查保持。
@@ -71,3 +77,5 @@ RunStore按runId共享正在执行的计算，计算/校验/等待期间不持�
 `test_course_http_representation.py`覆盖双向charset/内容编码声明、实际UTF-16/32字节、健康预检、发送后未知状态、中文及原缓存重放。异常请求验证零RunStore/零工作流调用，不改变原评分或共同契约。
 
 `test_course_request_identity.py`覆盖精确数值等价的完成/执行中重放、一次成功/失败共享、容量、客户端GET、首个请求/内容摘要保持，以及相邻浮点同分冲突、严格整数和阶段内容改写拒绝。
+
+`test_course_optional_values.py`覆盖冻结Schema允许的64种六信号省略组合、显式null对照、原时间/冲突/回退政策、来源指针、矩阵字段存在性、缺失计划/比较及实际HTTP重放；不改变Schema来排除合法缺失输入。
