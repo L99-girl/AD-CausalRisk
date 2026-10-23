@@ -19,6 +19,8 @@ FROZEN_CONTRACT_SHA256='90384cccce76dd35c8d31dbcc182d8c2f0ff32031948dc694ca7520c
 REQUIRED_LIMITATIONS=tuple(LIMITATIONS)
 KEYWORDS={'type','properties','required','additionalProperties','items','maxItems','const','enum',
           'format','pattern','minLength','maxLength','minimum','maximum','allOf','if','then','else'}
+_HTTP_TOKEN=r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+_JSON_PARAMETER=re.compile(r'[ \t]*;[ \t]*('+_HTTP_TOKEN+r')[ \t]*=[ \t]*('+_HTTP_TOKEN+r'|"(?:[^"\\\r\n]|\\[^\r\n])*")[ \t]*')
 
 
 class CourseProtocolError(ValueError):
@@ -53,6 +55,37 @@ def json_tree(value,depth=0):
     else:require(value is None or type(value) is bool or number(value),'JSON_TYPES')
 
 
+def utf8_json_media(headers):
+    """One JSON media declaration, with at most one plain UTF-8 charset."""
+    if len(headers.get_all('Content-Type',[]))!=1:
+        return False
+    value=headers.get('Content-Type').strip(' \t')
+    media,separator,params=value.partition(';')
+    if media.strip(' \t').lower()!='application/json':
+        return False
+    suffix=separator+params
+    position=0;seen_charset=False
+    while position<len(suffix):
+        match=_JSON_PARAMETER.match(suffix,position)
+        if match is None:return False
+        name,text=match.group(1).lower(),match.group(2)
+        # Email header parsing silently joins charset*0/charset*1. HTTP JSON
+        # accepts only a plain charset, never extended or continued metadata.
+        if name.startswith('charset*'):return False
+        if name=='charset':
+            if text.startswith('"'):text=re.sub(r'\\(.)',r'\1',text[1:-1])
+            if seen_charset or text.lower()!='utf-8':return False
+            seen_charset=True
+        position=match.end()
+    return True
+
+
+def identity_encoding(headers):
+    """Content coding is absent or a single identity, never a coding chain."""
+    values=headers.get_all('Content-Encoding',[])
+    return not values or (len(values)==1 and values[0].strip().lower()=='identity')
+
+
 def decode_json(raw):
     def pairs(items):
         result={}
@@ -61,6 +94,9 @@ def decode_json(raw):
         return result
     def constant(_):raise CourseProtocolError('INVALID_RESPONSE_JSON')
     try:
+        # json.loads(bytes) guesses UTF-16/32 even when HTTP declares UTF-8.
+        # Decode explicitly so declarations and the actual wire agree.
+        if isinstance(raw,(bytes,bytearray)):raw=raw.decode('utf-8')
         result=json.loads(raw,object_pairs_hook=pairs,parse_constant=constant)
         require(isinstance(result,dict),'INVALID_RESPONSE_JSON');json_tree(result)
         return result

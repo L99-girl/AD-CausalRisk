@@ -7,7 +7,7 @@ import re
 from uuid import uuid4
 from urllib.parse import urlsplit
 from .course_protocol import (CourseContract,CourseProtocolError,decode_json,validate_course_request,
-                              validate_course_result,number)
+                              validate_course_result,number,utf8_json_media,identity_encoding)
 from .deepagent_contract import CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,RUN_ID_RE,payload_digest
 
 MAX_RESPONSE=2*1024*1024
@@ -79,12 +79,11 @@ class CourseClient:
             sent=True;connection.request('POST' if post else 'GET',path,body=raw,headers=headers)
             response=connection.getresponse();status=response.status
             require(not 300<=status<400,'REDIRECT_REFUSED')
-            require(response.headers.get_all('Content-Type') is not None and len(response.headers.get_all('Content-Type'))==1,'RESPONSE_MEDIA_TYPE')
-            require(response.headers.get_content_type()=='application/json' and response.headers.get_content_charset('utf-8').lower()=='utf-8','RESPONSE_MEDIA_TYPE')
+            require(utf8_json_media(response.headers),'RESPONSE_MEDIA_TYPE')
             lengths=response.headers.get_all('Content-Length',[])
             require(len(lengths)==1 and re.fullmatch(r'[0-9]{1,12}',lengths[0]) is not None,'RESPONSE_FRAMING')
             require(int(lengths[0])<=MAX_RESPONSE and not response.headers.get_all('Transfer-Encoding',[]),'RESPONSE_TOO_LARGE')
-            require(response.getheader('Content-Encoding','identity')=='identity','RESPONSE_ENCODING')
+            require(identity_encoding(response.headers),'RESPONSE_ENCODING')
             raw=response.read(MAX_RESPONSE+1)
             require(len(raw)<=MAX_RESPONSE and len(raw)==int(lengths[0]),'RESPONSE_LENGTH')
             data=decode_json(raw)

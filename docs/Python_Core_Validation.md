@@ -21,6 +21,12 @@
 
 ## 执行与缓存边界
 
+### HTTP正文表示
+
+请求和响应使用唯一的`Content-Type: application/json`，charset可以省略或为单个`UTF-8`，大小写及标准引号不影响判断。重复charset（即使值相同）、扩展charset及其他字符集拒绝；`Content-Encoding`可以省略或为唯一`identity`，重复编码、压缩和编码链均不接受。实际正文必须为UTF-8 JSON，不猜测UTF-16/32；带BOM的JSON也拒绝。原Content-Length、大小、重复JSON键、trace和结果语义检查保持。
+
+请求声明不合规在读取/解析及RunStore之前返回原`415/UNSUPPORTED_MEDIA_TYPE`，实际正文错误仍为原400；拒绝不占用runId或调用评分。客户端用原`RESPONSE_MEDIA_TYPE`、`RESPONSE_ENCODING`或`INVALID_RESPONSE_JSON`拒绝不合规返回。POST发送后的拒绝保留入口绑定与结果未知状态，可按原runId只GET核对；健康响应不合规时不POST、不登记绑定。此处是原UTF-8约定的执行收紧，未增加媒体类型、字段、错误DTO或公共操作。
+
 ### 调用端请求绑定
 
 `CourseClient.create`在入口复制并校验请求，随后在任何健康探测、绑定登记或HTTP调用前完成trace与JSON字节预检。发送的字节、本地runId绑定和响应校验使用同一份入口快照。调用者在健康检查或响应等待期间改写原字典，不改变本次授权输入；`result(expected_request=...)`也先复制显式校验基准。局部快照不认证原始来源或实际训练信息。
@@ -59,3 +65,5 @@ RunStore按runId共享正在执行的计算，计算/校验/等待期间不持�
 从仓库根目录运行`python -m unittest discover -s tests -v`。`test_course_result_integrity.py`覆盖独立JSON Schema仍合法的篡改、实际临时HTTP客户端/只读核对/批处理、原100份档案、64种缺失组合，以及方向和等级的舍入边界；`test_course_execution_integrity.py`覆盖工具故障、异常输入、实际400/500、无缓存/无自动重试和对象复制。不需要研究数据或现有8091/8084服务。
 
 `test_course_stage_boundaries.py`覆盖融合/图/门控的下游前拒绝、工具输入改写、同分但来源错误、返回引用隔离、BLOCKED短路及真实临时HTTP500/后续GET404。该验证使用原DEMO结构，不读取研究数据。
+
+`test_course_http_representation.py`覆盖双向charset/内容编码声明、实际UTF-16/32字节、健康预检、发送后未知状态、中文及原缓存重放。异常请求验证零RunStore/零工作流调用，不改变原评分或共同契约。

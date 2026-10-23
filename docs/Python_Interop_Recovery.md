@@ -54,6 +54,8 @@ report = reconcile_course_run(CourseClient('http://127.0.0.1:8091'), original_re
 
 参考客户端在网络调用前固定请求快照和发送字节；调用者在health或等待HTTP响应期间改写原对象，不会改变已登记的runId绑定或返回校验基准。无效trace、序列化及请求字节限制在健康探测和绑定登记前拒绝。发送已开始的失败仍保留原快照及不确定性，供原runId的GET核对；详情见[核心校验说明](Python_Core_Validation.md#调用端请求绑定)。Python本地绑定不代替Java持久历史、身份或对象权限。
 
+Java调用方应发送实际UTF-8 JSON，Content-Type唯一且charset省略或单个UTF-8；Content-Encoding省略或单个identity。原Python服务现拒绝相互冲突或重复的charset、内容编码及不支持字符集。参考客户端同样拒绝不合规响应及伪装成UTF-8的UTF-16/32正文；即使原结果已经缓存，也不会将该响应视为成功，只按原runId作GET核对。详情见[HTTP正文表示](Python_Core_Validation.md#http正文表示)。
+
 | lookupStatus | 含义与下一步 |
 | --- | --- |
 | FOUND | 找到与原请求相符的DTO；Java仍须检查对象权限、任务关系、已有保存记录和审计后处理，不能据此认证真实执行或业务提交成功 |

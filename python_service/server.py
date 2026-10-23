@@ -16,7 +16,7 @@ from uuid import uuid4
 from .deepagent_contract import (CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,
     AgentContractError,request_snapshot,payload_digest,run_workflow)
 from .demo_scoring import ContractError,score_java_synthetic_payload
-from .course_protocol import CourseContract,validate_course_result
+from .course_protocol import CourseContract,validate_course_result,utf8_json_media,identity_encoding
 
 MAX_BODY=128*1024
 REJECT_DRAIN_BYTES=MAX_BODY*2
@@ -167,7 +167,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         if len(lengths)==1 and re.fullmatch(r'[0-9]{1,12}',lengths[0]):self.unread_body=int(lengths[0])
         try:
             if urlsplit(self.path).path!='/api/agent/v1/runs':raise AgentContractError('接口不存在',404,'ROUTE_NOT_FOUND')
-            if len(self.headers.get_all('Content-Type',[]))!=1 or self.headers.get_content_type()!='application/json':raise AgentContractError('请求必须为application/json',415,'UNSUPPORTED_MEDIA_TYPE')
+            if not utf8_json_media(self.headers) or not identity_encoding(self.headers):raise AgentContractError('请求必须为UTF-8 application/json且不使用内容压缩',415,'UNSUPPORTED_MEDIA_TYPE')
             if self.headers.get_all('Transfer-Encoding',[]):raise AgentContractError('仅支持带Content-Length的JSON请求')
             if len(lengths)!=1:raise AgentContractError('需要唯一Content-Length')
             length=lengths[0]
