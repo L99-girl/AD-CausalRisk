@@ -25,6 +25,31 @@ def require(condition,code):
     if not condition:raise CourseProtocolError(code)
 
 
+def _trace_id(value):
+    value=uuid4().hex if value is None else value
+    if not isinstance(value,str) or TRACE_RE.fullmatch(value) is None:
+        raise CourseClientError('INVALID_TRACE_ID')
+    return value
+
+
+def _request_snapshot(payload,contract):
+    try:
+        payload=copy.deepcopy(payload)
+        validate_course_request(payload,contract)
+        return payload
+    except (CourseProtocolError,TypeError,KeyError,ValueError,RecursionError,OverflowError):
+        raise CourseClientError('INVALID_REQUEST') from None
+
+
+def _request_bytes(payload):
+    try:
+        raw=json.dumps(payload,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode('utf-8')
+    except (TypeError,ValueError,OverflowError,RecursionError):
+        raise CourseClientError('INVALID_JSON') from None
+    if len(raw)>MAX_REQUEST:raise CourseClientError('REQUEST_TOO_LARGE')
+    return raw
+
+
 class CourseClient:
     """One caller's run/request bindings; no persistent store or implicit retry."""
     def __init__(self,base_url='http://127.0.0.1:8091',*,timeout=15):
@@ -41,13 +66,14 @@ class CourseClient:
     def __repr__(self):return '<CourseClient local synthetic session>'
 
     def _request(self,path,body=None,*,trace_id=None):
-        trace_id=uuid4().hex if trace_id is None else trace_id
-        if not isinstance(trace_id,str) or TRACE_RE.fullmatch(trace_id) is None:raise CourseClientError('INVALID_TRACE_ID')
+        trace_id=_trace_id(trace_id)
         connection=http.client.HTTPConnection('127.0.0.1',self.port,timeout=self.timeout)
         status=None;sent=False;post=body is not None
         try:
             headers={'Accept':'application/json','X-Trace-Id':trace_id}
-            raw=json.dumps(body,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode('utf-8') if post else None
+            # POST bytes are prepared from the entry snapshot before health,
+            # binding or network I/O. Never re-read a caller's live object.
+            raw=body
             if post:
                 require(len(raw)<=MAX_REQUEST,'REQUEST_TOO_LARGE');headers['Content-Type']='application/json'
             sent=True;connection.request('POST' if post else 'GET',path,body=raw,headers=headers)
@@ -87,13 +113,14 @@ class CourseClient:
         self._ready=True;return data
 
     def create(self,payload,*,trace_id=None):
-        try:validate_course_request(payload,self.contract)
-        except (CourseProtocolError,TypeError,KeyError):raise CourseClientError('INVALID_REQUEST') from None
+        payload=_request_snapshot(payload,self.contract)
+        trace_id=_trace_id(trace_id)
+        raw=_request_bytes(payload)
         run_id=payload['runId'];known=self._requests.get(run_id)
         if known is None and len(self._requests)>=1000:raise CourseClientError('CLIENT_BINDING_CAPACITY')
         if not self._ready:self.health()
         if known is None:self._requests[run_id]=copy.deepcopy(payload)
-        data=self._request('/api/agent/v1/runs',payload,trace_id=trace_id)
+        data=self._request('/api/agent/v1/runs',raw,trace_id=trace_id)
         if known is not None and payload_digest(known)!=payload_digest(payload):raise CourseClientError('CONFLICTING_RUN_ACCEPTED',200,request_outcome_unknown=True)
         try:return validate_course_result(data,payload,self.contract)
         except CourseProtocolError as error:raise CourseClientError(error.code,200,request_outcome_unknown=True) from None
@@ -102,12 +129,12 @@ class CourseClient:
         if not isinstance(run_id,str) or RUN_ID_RE.fullmatch(run_id) is None:raise CourseClientError('INVALID_RUN_ID')
         payload=self._requests.get(run_id)
         if expected_request is not None:
-            try:validate_course_request(expected_request,self.contract)
-            except (CourseProtocolError,TypeError,KeyError):raise CourseClientError('INVALID_REQUEST') from None
+            expected_request=_request_snapshot(expected_request,self.contract)
             if expected_request['runId']!=run_id or (payload is not None and payload_digest(payload)!=payload_digest(expected_request)):
                 raise CourseClientError('REQUEST_BINDING_MISMATCH')
             payload=expected_request
         if payload is None:raise CourseClientError('REQUEST_BINDING_REQUIRED')
+        trace_id=_trace_id(trace_id)
         if not self._ready:self.health()
         data=self._request('/api/agent/v1/runs/'+run_id,trace_id=trace_id)
         try:return validate_course_result(data,payload,self.contract)

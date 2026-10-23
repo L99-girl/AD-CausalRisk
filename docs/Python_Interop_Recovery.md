@@ -52,6 +52,8 @@ report = reconcile_course_run(CourseClient('http://127.0.0.1:8091'), original_re
 
 工具只调用健康GET及原runId的结果GET，检查原请求绑定及结果Schema/语义，不调用create、不自动重提或更换runId。请求副本与返回结果独立保存，阻断结果仍为null/UNAVAILABLE。
 
+参考客户端在网络调用前固定请求快照和发送字节；调用者在health或等待HTTP响应期间改写原对象，不会改变已登记的runId绑定或返回校验基准。无效trace、序列化及请求字节限制在健康探测和绑定登记前拒绝。发送已开始的失败仍保留原快照及不确定性，供原runId的GET核对；详情见[核心校验说明](Python_Core_Validation.md#调用端请求绑定)。Python本地绑定不代替Java持久历史、身份或对象权限。
+
 | lookupStatus | 含义与下一步 |
 | --- | --- |
 | FOUND | 找到与原请求相符的DTO；Java仍须检查对象权限、任务关系、已有保存记录和审计后处理，不能据此认证真实执行或业务提交成功 |
