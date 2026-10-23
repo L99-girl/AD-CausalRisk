@@ -146,15 +146,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * A write could not take the row lock within the database's wait limit. For the import commit
-     * this means another request is already committing the same job, so the caller should retry
-     * instead of receiving a server error. {@link CannotAcquireLockException} is a subclass of
-     * {@link PessimisticLockingFailureException}; both are listed to make the intent explicit.
+     * A write could not take the row lock within the database's wait limit, or it lost a deadlock.
+     * That is a retryable conflict rather than a server error, and it can happen in any module -
+     * the import commit waiting on the job row, but also a subject or visit insert losing a
+     * deadlock - so the message stays module-neutral. {@link CannotAcquireLockException} is a
+     * subclass of {@link PessimisticLockingFailureException}; both are listed to make the intent
+     * explicit.
      */
     @ExceptionHandler({CannotAcquireLockException.class, PessimisticLockingFailureException.class})
     ResponseEntity<Envelope<Void>> handleLockConflict(PessimisticLockingFailureException exception) {
         log.debug("row lock could not be acquired in time", exception);
-        return respond(ErrorCode.VALIDATION_ERROR, "该任务正在处理中，请稍后重试");
+        return respond(ErrorCode.VALIDATION_ERROR, "操作冲突，请稍后重试");
     }
 
     @ExceptionHandler(Exception.class)

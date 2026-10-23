@@ -540,4 +540,22 @@ class CsvImportParserTest {
         assertThat(first.digest()).hasSize(64);
         assertThat(second.digest()).hasSize(64);
     }
+
+    /**
+     * A zero-width space is not whitespace, so {@code isBlank()} accepts it - but the alias
+     * renders as empty, which is exactly what the "alias must not be blank" rule forbids.
+     */
+    @Test
+    void subjectAliasOfOnlyZeroWidthCharactersIsRejected() {
+        String zeroWidth = "\u200B";
+
+        ParsedImport parsed = parse(SUBJECT_HEADER + "DEMO-050,"
+                + zeroWidth + zeroWidth + ",ACTIVE\n");
+
+        assertThat(parsed.validRows()).isZero();
+        assertThat(parsed.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.field()).isEqualTo("alias");
+            assertThat(issue.message()).contains("不能为空");
+        });
+    }
 }

@@ -69,9 +69,13 @@ public class Visit {
     private BigDecimal cdrSb;
 
     /**
-     * The submitted score as text, exactly as the client sent it - the authoritative form.
-     * {@code null} for rows written before migration {@code V4} that could not be backfilled;
-     * readers then fall back to the derived column.
+     * The submitted score as {@link BigDecimal#toString()} renders it - the authoritative form.
+     *
+     * <p>This preserves the <i>numeric value</i> exactly (that is why V4 exists), but it is the
+     * canonical text, not the literal cell the client typed: {@code 07.50} becomes {@code 7.50},
+     * {@code 1e1} becomes {@code 1E+1}, {@code +1} becomes {@code 1} and {@code -0.0} becomes
+     * {@code 0.0}. {@code null} for rows written before V4 that could not be backfilled; readers
+     * then fall back to the derived column.
      */
     @Column(name = "raw_mmse", length = 64)
     private String rawMmse;

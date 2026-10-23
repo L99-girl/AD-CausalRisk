@@ -67,6 +67,10 @@ public class CsvImportParser {
 
     private static final Set<String> APOE_LITERALS = Set.of("0", "1", "2");
 
+    /** Zero-width code points that render as nothing; text made only of them reads as empty. */
+    private static final Set<Integer> INVISIBLE_CODE_POINTS =
+            Set.of(0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF);
+
     private static final BigDecimal MMSE_MAX = new BigDecimal("30");
 
     private static final BigDecimal CDR_SB_MAX = new BigDecimal("18");
@@ -193,7 +197,7 @@ public class CsvImportParser {
                 issue(issues, row, "subjectCode", "格式无效，须匹配 DEMO-[A-Za-z0-9-]{1,45}");
             }
 
-            if (alias.isBlank()) {
+            if (isBlankOrInvisible(alias)) {
                 issue(issues, row, "alias", "不能为空");
             } else if (alias.length() > ALIAS_MAX) {
                 issue(issues, row, "alias", "长度不能超过 " + ALIAS_MAX);
@@ -338,6 +342,17 @@ public class CsvImportParser {
     // ===================================================================
     // Field helpers
     // ===================================================================
+
+    /**
+     * True when a value would look empty to a reader: nothing but whitespace or zero-width
+     * characters. {@link String#isBlank()} on its own lets a value made of U+200B through, which
+     * renders as an empty alias.
+     */
+    private static boolean isBlankOrInvisible(String text) {
+        return text.codePoints()
+                .allMatch(codePoint -> Character.isWhitespace(codePoint)
+                        || INVISIBLE_CODE_POINTS.contains(codePoint));
+    }
 
     private static boolean wrongColumnCount(CsvRecord record, ImportTable table,
                                             List<RowIssue> issues) {

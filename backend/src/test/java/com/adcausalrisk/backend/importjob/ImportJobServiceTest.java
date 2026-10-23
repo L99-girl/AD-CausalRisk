@@ -204,6 +204,41 @@ class ImportJobServiceTest {
     }
 
     /**
+     * A restored or partially recovered database can leave a record whose {@code result_id} is
+     * null; {@code findById(null)} would raise IllegalArgumentException and become a 500.
+     */
+    @Test
+    void replayRefusesARecordWithoutAResultId() {
+        given(idempotencyRepository.findByUserIdAndOperationAndIdempotencyKey(USER_ID, OPERATION, "k"))
+                .willReturn(Optional.of(new IdempotencyRecord(USER_ID, OPERATION, "k",
+                        sha256(CSV), null)));
+
+        assertThatThrownBy(() -> service().preview(RESEARCHER, "k", CSV))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("导入任务不存在");
+
+        verifyNoInteractions(jobRepository);
+    }
+
+    /**
+     * Replay is the one read that does not go through {@code requireReadable}. A restored record
+     * whose result id now points at another user's job must not disclose that job.
+     */
+    @Test
+    void replayRefusesAJobOwnedByAnotherUser() {
+        DataImportJob foreign = new DataImportJob(99L, "demo-foreign", Instant.now(),
+                ImportTable.SUBJECT, 1, 1, 0, "[]", null, sha256(CSV), null);
+        given(idempotencyRepository.findByUserIdAndOperationAndIdempotencyKey(USER_ID, OPERATION, "k"))
+                .willReturn(Optional.of(new IdempotencyRecord(USER_ID, OPERATION, "k",
+                        sha256(CSV), 7L)));
+        given(jobRepository.findById(7L)).willReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> service().preview(RESEARCHER, "k", CSV))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("导入任务不存在");
+    }
+
+    /**
      * "Today" must come from the configured business zone, never from the host's default zone.
      * At 2026-02-28T20:00Z it is 2026-03-01 in Asia/Shanghai, so the captured date proves which
      * zone the parser was given.

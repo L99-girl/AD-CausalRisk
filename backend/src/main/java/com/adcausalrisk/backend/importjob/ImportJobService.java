@@ -257,9 +257,23 @@ public class ImportJobService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Idempotency-Key 已用于另一个不同的上传，请使用新的 key");
         }
-        DataImportJob job = jobRepository.findById(record.getResultId())
+        Long resultId = record.getResultId();
+        // A restored or partially recovered database can leave a record whose job row is gone.
+        // findById(null) would raise IllegalArgumentException and become a 500, so a missing id
+        // is reported the same way as a missing row.
+        if (resultId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "导入任务不存在");
+        }
+        DataImportJob job = jobRepository.findById(resultId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "导入任务不存在"));
+        // Only the user who recorded the key may replay it. Without this check a restored record
+        // pointing at another user's job (auto-increment reused after a restore) would disclose
+        // that job through the replay path, which is the one read that does not go through
+        // requireReadable.
+        if (!job.getCreatedBy().equals(record.getUserId())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "导入任务不存在");
+        }
         return toView(job);
     }
 
