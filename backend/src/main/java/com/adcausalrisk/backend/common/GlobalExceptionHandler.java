@@ -4,7 +4,9 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -141,6 +143,18 @@ public class GlobalExceptionHandler {
         log.debug("database constraint rejected the write", exception);
         return respond(ErrorCode.VALIDATION_ERROR,
                 "数据在预览后发生变化或与现有数据冲突，请重新预览");
+    }
+
+    /**
+     * A write could not take the row lock within the database's wait limit. For the import commit
+     * this means another request is already committing the same job, so the caller should retry
+     * instead of receiving a server error. {@link CannotAcquireLockException} is a subclass of
+     * {@link PessimisticLockingFailureException}; both are listed to make the intent explicit.
+     */
+    @ExceptionHandler({CannotAcquireLockException.class, PessimisticLockingFailureException.class})
+    ResponseEntity<Envelope<Void>> handleLockConflict(PessimisticLockingFailureException exception) {
+        log.debug("row lock could not be acquired in time", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "该任务正在处理中，请稍后重试");
     }
 
     @ExceptionHandler(Exception.class)

@@ -337,6 +337,33 @@ class ImportJobApiTest {
         assertThat(stored).isEqualTo(2);
     }
 
+    /**
+     * A missing feature value must reach the database as SQL NULL. Empty cells are valid input,
+     * and the JDBC batch insert has to bind a null parameter rather than fail on it.
+     */
+    @Test
+    void commitInsertsFeatureWithMissingValueAsNull() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-722");
+        JsonNode preview = bodyOf(mockMvc.perform(previewRequest("key-feature-null",
+                        FEATURE_HEADER
+                                + "DEMO-722,APOE_E4_COUNT,,2025-01-01,count\n"
+                                + "DEMO-722,MRI_HIPPOCAMPUS_L,0.5,2025-01-01,normalized\n")
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(preview.get("data").get("validRows").asInt()).isEqualTo(2);
+        assertThat(preview.get("data").get("invalidRows").asInt()).isZero();
+
+        mockMvc.perform(post(COMMIT_PATH, preview.get("data").get("jobId").asLong()).session(admin))
+                .andExpect(status().isOk());
+
+        Integer missing = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subject_feature WHERE subject_id = ? AND feature_value IS NULL",
+                Integer.class, subject.getId());
+        assertThat(missing).as("the empty featureValue is stored as NULL, not 0").isEqualTo(1);
+    }
+
     @Test
     void invalidRowsAreCountedReportedAndNeverInserted() throws Exception {
         MockHttpSession admin = login("admin");

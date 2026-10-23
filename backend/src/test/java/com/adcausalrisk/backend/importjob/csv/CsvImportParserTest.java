@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 import com.adcausalrisk.backend.common.BusinessException;
@@ -435,5 +436,108 @@ class CsvImportParserTest {
         assertThat(first.digest()).describedAs("a removed row must change the digest")
                 .isNotEqualTo(oneRowFewer.digest());
         assertThat(first.digest()).hasSize(64);
+    }
+
+    // ===================================================================
+    // Missing feature values and date limits
+    // ===================================================================
+
+    /**
+     * An empty {@code featureValue} is a missing observation, exactly like an empty visit score:
+     * the row is accepted and the value stays null. {@code subject_feature.feature_value} is
+     * nullable for this reason.
+     */
+    @Test
+    void aMissingFeatureValueIsAcceptedAndStaysNull() {
+        ParsedImport apoe = parse(FEATURE_HEADER + "DEMO-001,APOE_E4_COUNT,,2025-01-01,count\n");
+        assertThat(apoe.validRows()).isEqualTo(1);
+        assertThat(apoe.issues()).isEmpty();
+        assertThat(apoe.rows()).singleElement()
+                .isInstanceOfSatisfying(ImportRow.Feature.class,
+                        row -> assertThat(row.featureValue()).isNull());
+
+        ParsedImport mri = parse(FEATURE_HEADER
+                + "DEMO-001,MRI_HIPPOCAMPUS_L,,2025-01-01,normalized\n");
+        assertThat(mri.validRows()).isEqualTo(1);
+        assertThat(mri.issues()).isEmpty();
+        assertThat(mri.rows()).singleElement()
+                .isInstanceOfSatisfying(ImportRow.Feature.class,
+                        row -> assertThat(row.featureValue()).isNull());
+    }
+
+    /** Text that only looks missing is still an invalid value, never a missing one. */
+    @Test
+    void featureValueTextThatOnlyLooksMissingIsRejected() {
+        for (String literal : new String[] {"null", "NaN", "Infinity", "true"}) {
+            ParsedImport parsed = parse(FEATURE_HEADER
+                    + "DEMO-001,MRI_HIPPOCAMPUS_L," + literal + ",2025-01-01,normalized\n");
+
+            assertThat(parsed.validRows()).as("feature value '%s'", literal).isZero();
+            assertThat(parsed.issues()).as("feature value '%s'", literal)
+                    .anySatisfy(issue -> assertThat(issue.message()).contains("不是有效数值"));
+        }
+    }
+
+    /** The future-date rule applies to every date field, not only to visit dates. */
+    @Test
+    void futureDatesAreRejectedForEveryDateField() {
+        String future = TODAY.plusDays(1).toString();
+
+        assertThat(parse(VISIT_HEADER + "DEMO-002,V1," + future + ",28,25,0.5\n").issues())
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.field()).isEqualTo("visitDate");
+                    assertThat(issue.message()).contains("未来日期");
+                });
+
+        assertThat(parse(FEATURE_HEADER
+                + "DEMO-001,APOE_E4_COUNT,1," + future + ",count\n").issues())
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.field()).isEqualTo("recordedAt");
+                    assertThat(issue.message()).contains("未来日期");
+                });
+    }
+
+    /** ISO-8601 lets LocalDate represent year 0; a clinical record may not. */
+    @Test
+    void datesInYearZeroOrEarlierAreRejected() {
+        for (String impossible : new String[] {"0000-01-01", "-0001-01-01"}) {
+            assertThat(parse(VISIT_HEADER + "DEMO-002,V1," + impossible + ",28,25,0.5\n").issues())
+                    .as("visitDate %s", impossible)
+                    .singleElement()
+                    .satisfies(issue -> {
+                        assertThat(issue.field()).isEqualTo("visitDate");
+                        assertThat(issue.message()).contains("年份必须大于 0");
+                    });
+
+            assertThat(parse(FEATURE_HEADER
+                    + "DEMO-001,APOE_E4_COUNT,1," + impossible + ",count\n").issues())
+                    .as("recordedAt %s", impossible)
+                    .singleElement()
+                    .satisfies(issue -> {
+                        assertThat(issue.field()).isEqualTo("recordedAt");
+                        assertThat(issue.message()).contains("年份必须大于 0");
+                    });
+        }
+    }
+
+    /**
+     * The digest encoding must be injective. Under a plain "|"-join both row sets below render to
+     * {@code SUBJECT|DEMO-900|a|b|c}, so two different files would share a digest; the
+     * length-prefixed encoding keeps them apart.
+     */
+    @Test
+    void theDigestIsNotConfusedByFieldsThatContainTheOldSeparator() {
+        ParsedImport first = new ParsedImport(ImportTable.SUBJECT, 1, 1, 0, List.of(),
+                List.of(new ImportRow.Subject(2, "DEMO-900", "a|b", "c")));
+        ParsedImport second = new ParsedImport(ImportTable.SUBJECT, 1, 1, 0, List.of(),
+                List.of(new ImportRow.Subject(2, "DEMO-900", "a", "b|c")));
+
+        assertThat(first.digest())
+                .as("same fields joined by '|', different tuples")
+                .isNotEqualTo(second.digest());
+        assertThat(first.digest()).hasSize(64);
+        assertThat(second.digest()).hasSize(64);
     }
 }

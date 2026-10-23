@@ -52,16 +52,33 @@ public record ParsedImport(
 
     private static String identify(ImportRow row) {
         return switch (row) {
-            case ImportRow.Subject subject -> String.join("|", "SUBJECT",
+            case ImportRow.Subject subject -> encode("SUBJECT",
                     subject.subjectCode(), subject.alias(), subject.status());
-            case ImportRow.Visit visit -> String.join("|", "VISIT",
+            case ImportRow.Visit visit -> encode("VISIT",
                     String.valueOf(visit.subjectId()), visit.visitCode(),
                     String.valueOf(visit.visitDate()), String.valueOf(visit.mmse()),
                     String.valueOf(visit.moca()), String.valueOf(visit.cdrSb()));
-            case ImportRow.Feature feature -> String.join("|", "FEATURE",
+            case ImportRow.Feature feature -> encode("FEATURE",
                     String.valueOf(feature.subjectId()), feature.featureName(),
                     String.valueOf(feature.featureValue()), String.valueOf(feature.recordedAt()),
                     feature.unit());
         };
+    }
+
+    /**
+     * Length-prefixed encoding of one row ({@code 5:hello5:world...}).
+     *
+     * <p>It must be <b>injective</b>: two different field tuples may never render to the same
+     * string, or two different files would share a digest. Joining with a separator does not have
+     * that property - {@code ("a|b", "c")} and {@code ("a", "b|c")} both become {@code a|b|c} - and
+     * an alias is allowed to contain any character. Prefixing each length makes the encoding
+     * self-delimiting, so no field content can shift the boundary.
+     */
+    private static String encode(String... fields) {
+        StringBuilder line = new StringBuilder();
+        for (String field : fields) {
+            line.append(field.length()).append(':').append(field);
+        }
+        return line.toString();
     }
 }

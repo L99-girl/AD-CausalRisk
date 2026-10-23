@@ -12,7 +12,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +35,7 @@ import com.adcausalrisk.backend.visit.VisitRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -70,13 +74,21 @@ class ImportJobServiceTest {
     private final PlatformTransactionManager transactionManager =
             mock(PlatformTransactionManager.class);
 
+    /** Fixed business clock used by the tests that do not care about the date. */
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneId.of("Asia/Shanghai"));
+
     private ImportJobService service() {
+        return service(CLOCK);
+    }
+
+    private ImportJobService service(Clock clock) {
         // canCreate only inspects role codes, so the real policy is enough here.
         SubjectAccessPolicy accessPolicy =
                 new SubjectAccessPolicy(mock(SubjectPermissionRepository.class));
         return new ImportJobService(jobRepository, idempotencyRepository, subjectRepository,
                 visitRepository, jdbcTemplate, accessPolicy, parser, new ObjectMapper(),
-                transactionManager);
+                clock, transactionManager);
     }
 
     /**
@@ -189,6 +201,31 @@ class ImportJobServiceTest {
                 .hasMessageContaining("Idempotency-Key");
 
         verifyNoInteractions(jobRepository, idempotencyRepository);
+    }
+
+    /**
+     * "Today" must come from the configured business zone, never from the host's default zone.
+     * At 2026-02-28T20:00Z it is 2026-03-01 in Asia/Shanghai, so the captured date proves which
+     * zone the parser was given.
+     */
+    @Test
+    void theBusinessDayComesFromTheConfiguredClockNotTheHostZone() {
+        Clock shanghai = Clock.fixed(Instant.parse("2026-02-28T20:00:00Z"),
+                ZoneId.of("Asia/Shanghai"));
+        given(transactionManager.getTransaction(any())).willReturn(new SimpleTransactionStatus());
+        given(idempotencyRepository.findByUserIdAndOperationAndIdempotencyKey(USER_ID, OPERATION, "k"))
+                .willReturn(Optional.empty());
+        given(parser.parse(anyString(), any(), any())).willReturn(preview(1, 1));
+        given(jobRepository.saveAndFlush(any(DataImportJob.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        service(shanghai).preview(RESEARCHER, "k", CSV);
+
+        ArgumentCaptor<LocalDate> today = ArgumentCaptor.forClass(LocalDate.class);
+        verify(parser).parse(anyString(), any(), today.capture());
+        assertThat(today.getValue())
+                .as("the UTC date is 2026-02-28; the business zone must decide")
+                .isEqualTo(LocalDate.of(2026, 3, 1));
     }
 
     /**

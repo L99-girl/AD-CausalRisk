@@ -34,9 +34,12 @@ import com.adcausalrisk.backend.common.ErrorCode;
  *
  * <ul>
  *   <li>Exact fixture headers identify the table; column names are never guessed or reordered.</li>
- *   <li>An empty cell means "not recorded" and stays {@code null} - it is never turned into 0.</li>
+ *   <li>An empty cell means "not recorded" and stays {@code null} - it is never turned into 0.
+ *       This holds for visit scores <i>and</i> for {@code featureValue}.</li>
  *   <li>{@code null}/{@code NaN}/{@code Infinity}/{@code true}/{@code false} written as text are
  *       <i>not</i> missing values; they are invalid numbers.</li>
+ *   <li>Every date must be a real past-or-present date: a future date and a year of 0 or less are
+ *       both rejected, for {@code visitDate} and {@code recordedAt} alike.</li>
  *   <li>Values are not trimmed, rounded or repaired. {@code 0} stays {@code 0}, decimals stay
  *       decimals, and a value that cannot be stored without loss is rejected.</li>
  *   <li>APOE_E4_COUNT must be written as {@code 0}, {@code 1} or {@code 2}; {@code 1.0} and
@@ -237,7 +240,7 @@ public class CsvImportParser {
                 issue(issues, row, "visitCode", "长度不能超过 " + VISIT_CODE_MAX);
             }
 
-            LocalDate visitDate = date(record.field(2), row, "visitDate", today, true, issues);
+            LocalDate visitDate = date(record.field(2), row, "visitDate", today, issues);
             BigDecimal mmse = score(record.field(3), row, "mmse", MMSE_MAX, issues);
             BigDecimal moca = score(record.field(4), row, "moca", MMSE_MAX, issues);
             BigDecimal cdrSb = score(record.field(5), row, "cdrSb", CDR_SB_MAX, issues);
@@ -290,7 +293,7 @@ public class CsvImportParser {
                 }
             }
 
-            LocalDate recordedAt = date(record.field(3), row, "recordedAt", today, false, issues);
+            LocalDate recordedAt = date(record.field(3), row, "recordedAt", today, issues);
 
             if (issues.size() == before) {
                 rows.add(new ImportRow.Feature(row, subjectId, featureName, featureValue,
@@ -301,8 +304,10 @@ public class CsvImportParser {
 
     private static BigDecimal featureValue(String text, int row, String featureName,
                                            List<RowIssue> issues) {
+        // An empty cell is a missing observation, exactly as it is for a visit score: it stays
+        // null and is never an error. subject_feature.feature_value is nullable for this reason.
+        // Only text that merely *looks* missing ("null", "NaN", ...) is rejected below.
         if (text.isEmpty()) {
-            issue(issues, row, "featureValue", "不能为空");
             return null;
         }
         if ("APOE_E4_COUNT".equals(featureName)) {
@@ -344,9 +349,13 @@ public class CsvImportParser {
         return true;
     }
 
-    /** A date cell; {@code rejectFuture} is set for visits, per the preflight rule. */
+    /**
+     * A date cell. Both rules apply to <i>every</i> date field: a future date is not a recorded
+     * observation, and year 0 (or earlier) is not a real calendar date in this domain even though
+     * ISO-8601 lets {@link LocalDate} represent it.
+     */
     private static LocalDate date(String text, int row, String field, LocalDate today,
-                                  boolean rejectFuture, List<RowIssue> issues) {
+                                  List<RowIssue> issues) {
         if (text.isEmpty()) {
             issue(issues, row, field, "不能为空");
             return null;
@@ -358,7 +367,11 @@ public class CsvImportParser {
             issue(issues, row, field, "不是有效日期，应为 yyyy-MM-dd");
             return null;
         }
-        if (rejectFuture && parsed.isAfter(today)) {
+        if (parsed.getYear() <= 0) {
+            issue(issues, row, field, "年份必须大于 0");
+            return null;
+        }
+        if (parsed.isAfter(today)) {
             issue(issues, row, field, "不能是未来日期");
             return null;
         }

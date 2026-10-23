@@ -6,6 +6,10 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -41,6 +45,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -94,6 +99,9 @@ public class ImportJobService {
 
     private final ObjectMapper objectMapper;
 
+    /** The business-day clock; "today" must not depend on the host's zone. */
+    private final Clock clock;
+
     private final TransactionTemplate transactionTemplate;
 
     public ImportJobService(DataImportJobRepository jobRepository,
@@ -104,6 +112,7 @@ public class ImportJobService {
                             SubjectAccessPolicy accessPolicy,
                             CsvImportParser parser,
                             ObjectMapper objectMapper,
+                            Clock clock,
                             PlatformTransactionManager transactionManager) {
         this.jobRepository = jobRepository;
         this.idempotencyRepository = idempotencyRepository;
@@ -113,6 +122,7 @@ public class ImportJobService {
         this.accessPolicy = accessPolicy;
         this.parser = parser;
         this.objectMapper = objectMapper;
+        this.clock = clock;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -148,7 +158,7 @@ public class ImportJobService {
         }
 
         String text = decodeUtf8(bytes);
-        ParsedImport parsed = parser.parse(text, lookups(), LocalDate.now());
+        ParsedImport parsed = parser.parse(text, lookups(), LocalDate.now(clock));
 
         try {
             return transactionTemplate.execute(status -> persist(principal, idempotencyKey, digest,
@@ -203,7 +213,7 @@ public class ImportJobService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "预览数据已失效，请重新预览");
         }
 
-        ParsedImport reparsed = parser.parse(job.getPreviewCsv(), lookups(), LocalDate.now());
+        ParsedImport reparsed = parser.parse(job.getPreviewCsv(), lookups(), LocalDate.now(clock));
         if (reparsed.table() != job.getImportType()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "预览数据与任务类型不一致");
         }
@@ -274,18 +284,42 @@ public class ImportJobService {
                     .map(row -> new Visit(row.subjectId(), row.visitCode(), row.visitDate(),
                             row.mmse(), row.moca(), row.cdrSb()))
                     .toList());
-            case FEATURE -> jdbcTemplate.batchUpdate(
-                    "INSERT INTO subject_feature"
-                            + " (subject_id, feature_name, feature_value, recorded_at, unit)"
-                            + " VALUES (?, ?, ?, ?, ?)",
-                    parsed.rows().stream()
-                            // The feature module does not exist yet, so this insert names the
-                            // columns explicitly instead of claiming ownership of that table's
-                            // entity mapping.
-                            .map(row -> (ImportRow.Feature) row)
-                            .map(row -> new Object[] {row.subjectId(), row.featureName(),
-                                    row.featureValue(), row.recordedAt(), row.unit()})
-                            .toList());
+            case FEATURE -> {
+                // The feature module does not exist yet, so this insert names the columns
+                // explicitly instead of claiming ownership of that table's entity mapping.
+                List<ImportRow.Feature> features = parsed.rows().stream()
+                        .map(row -> (ImportRow.Feature) row)
+                        .toList();
+                jdbcTemplate.batchUpdate(
+                        "INSERT INTO subject_feature"
+                                + " (subject_id, feature_name, feature_value, recorded_at, unit)"
+                                + " VALUES (?, ?, ?, ?, ?)",
+                        new BatchPreparedStatementSetter() {
+                            @Override
+                            public void setValues(PreparedStatement statement, int index)
+                                    throws SQLException {
+                                ImportRow.Feature row = features.get(index);
+                                statement.setLong(1, row.subjectId());
+                                statement.setString(2, row.featureName());
+                                if (row.featureValue() == null) {
+                                    // A missing value must be SQL NULL with an explicit type.
+                                    // Binding it untyped (Types.NULL) works on H2 but is the one
+                                    // path no MySQL run has exercised; DECIMAL matches the column
+                                    // and is accepted by both drivers.
+                                    statement.setNull(3, Types.DECIMAL);
+                                } else {
+                                    statement.setBigDecimal(3, row.featureValue());
+                                }
+                                statement.setDate(4, java.sql.Date.valueOf(row.recordedAt()));
+                                statement.setString(5, row.unit());
+                            }
+
+                            @Override
+                            public int getBatchSize() {
+                                return features.size();
+                            }
+                        });
+            }
         }
     }
 
