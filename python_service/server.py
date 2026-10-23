@@ -14,7 +14,7 @@ from urllib.parse import urlsplit,unquote
 from uuid import uuid4
 
 from .deepagent_contract import (CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,
-    AgentContractError,request_snapshot,payload_digest,run_workflow)
+    AgentContractError,request_snapshot,request_identity_digest,run_workflow)
 from .demo_scoring import ContractError,score_java_synthetic_payload
 from .course_protocol import CourseContract,validate_course_result,utf8_json_media,identity_encoding
 
@@ -53,7 +53,7 @@ class RunStore:
 
     def create(self,payload):
         payload=request_snapshot(payload)
-        digest=payload_digest(payload)
+        digest=request_identity_digest(payload)
         run_id=payload['runId']
         with self.lock:
             cached=self.runs.get(run_id)

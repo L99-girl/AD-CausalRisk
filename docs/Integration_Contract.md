@@ -21,6 +21,8 @@ predictionWindowMonths在请求层接受6–60整数，当前演示规则实际�
 
 相同runId和相同语义JSON摘要重放返回原缓存内容，包括第一次运行的durationMs；JSON字段顺序不影响摘要。返回结果经副本保护，并发同请求只生成一次缓存记录。服务端没有提供SSE、WebSocket或取消接口。
 
+合法认知/MRI的number字段在runId身份比较时按精确数值处理：25与25.0、0与-0.0可以重放；不做数值舍入或容差合并。APOE计数/窗口仍执行原严格整数规则；真实值、日期、数据版本、数组顺序及缺字段/null差异仍冲突。Python保留首个请求、原内容摘要和实际执行耗时，不将此内存身份规则当Java持久业务幂等。
+
 graph包含nodes与edges，节点可为ACTIVE/MISSING，边和贡献标记研究演示范围。stages只包含实际执行阶段；BLOCKED可以只执行DATA_FUSION。阶段耗时是实际计算时间，界面不应按固定百分比替代。
 
 python_service/deepagent_contract.py负责输入校验和四阶段编排，demo_scoring.py负责演示排序。调整规则、请求字段或返回结构时，同步示例与契约测试。

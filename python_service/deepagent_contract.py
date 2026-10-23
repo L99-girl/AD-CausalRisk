@@ -134,6 +134,27 @@ def payload_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def request_identity_digest(payload: dict[str, Any]) -> str:
+    """Replay identity for an already-validated request, without rounding.
+
+    Only number-valued cognition/MRI fields normalize exact integral floats
+    (including signed zero). Integer-only fields are validated before this
+    helper; dates, order, missing fields and source values remain distinct.
+    Content provenance and tool mutation checks still use payload_digest.
+    """
+    identity = copy.deepcopy(payload)
+    for visit in identity['visits']:
+        for name in ('mmse', 'moca', 'cdrSb'):
+            value = visit.get(name)
+            if type(value) is float and value.is_integer():
+                visit[name] = int(value)
+    for feature in identity['features']:
+        value = feature['featureValue']
+        if feature['featureName'] in {'MRI_HIPPOCAMPUS_L', 'MRI_HIPPOCAMPUS_R'} and type(value) is float and value.is_integer():
+            feature['featureValue'] = int(value)
+    return payload_digest(identity)
+
+
 def request_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate an owned snapshot before binding a digest or executing stages."""
     try:

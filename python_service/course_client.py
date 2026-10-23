@@ -8,7 +8,7 @@ from uuid import uuid4
 from urllib.parse import urlsplit
 from .course_protocol import (CourseContract,CourseProtocolError,decode_json,validate_course_request,
                               validate_course_result,number,utf8_json_media,identity_encoding)
-from .deepagent_contract import CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,RUN_ID_RE,payload_digest
+from .deepagent_contract import CONTRACT_VERSION,WORKFLOW_VERSION,MODEL_VERSION,STAGES,RUN_ID_RE,request_identity_digest
 
 MAX_RESPONSE=2*1024*1024
 MAX_REQUEST=128*1024
@@ -120,7 +120,7 @@ class CourseClient:
         if not self._ready:self.health()
         if known is None:self._requests[run_id]=copy.deepcopy(payload)
         data=self._request('/api/agent/v1/runs',raw,trace_id=trace_id)
-        if known is not None and payload_digest(known)!=payload_digest(payload):raise CourseClientError('CONFLICTING_RUN_ACCEPTED',200,request_outcome_unknown=True)
+        if known is not None and request_identity_digest(known)!=request_identity_digest(payload):raise CourseClientError('CONFLICTING_RUN_ACCEPTED',200,request_outcome_unknown=True)
         try:return validate_course_result(data,payload,self.contract)
         except CourseProtocolError as error:raise CourseClientError(error.code,200,request_outcome_unknown=True) from None
 
@@ -129,7 +129,7 @@ class CourseClient:
         payload=self._requests.get(run_id)
         if expected_request is not None:
             expected_request=_request_snapshot(expected_request,self.contract)
-            if expected_request['runId']!=run_id or (payload is not None and payload_digest(payload)!=payload_digest(expected_request)):
+            if expected_request['runId']!=run_id or (payload is not None and request_identity_digest(payload)!=request_identity_digest(expected_request)):
                 raise CourseClientError('REQUEST_BINDING_MISMATCH')
             payload=expected_request
         if payload is None:raise CourseClientError('REQUEST_BINDING_REQUIRED')
