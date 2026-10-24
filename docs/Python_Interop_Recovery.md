@@ -52,11 +52,17 @@ report = reconcile_course_run(CourseClient('http://127.0.0.1:8091'), original_re
 
 工具只调用健康GET及原runId的结果GET，检查原请求绑定及结果Schema/语义，不调用create、不自动重提或更换runId。请求副本与返回结果独立保存，阻断结果仍为null/UNAVAILABLE。
 
+参考客户端在网络调用前固定请求快照和发送字节；调用者在health或等待HTTP响应期间改写原对象，不会改变已登记的runId绑定或返回校验基准。无效trace、序列化及请求字节限制在健康探测和绑定登记前拒绝。发送已开始的失败仍保留原快照及不确定性，供原runId的GET核对；详情见[核心校验说明](Python_Core_Validation.md#调用端请求绑定)。Python本地绑定不代替Java持久历史、身份或对象权限。
+
+Java调用方应发送实际UTF-8 JSON，Content-Type唯一且charset省略或单个UTF-8；Content-Encoding省略或单个identity。原Python服务现拒绝相互冲突或重复的charset、内容编码及不支持字符集。参考客户端同样拒绝不合规响应及伪装成UTF-8的UTF-16/32正文；即使原结果已经缓存，也不会将该响应视为成功，只按原runId作GET核对。详情见[HTTP正文表示](Python_Core_Validation.md#http正文表示)。
+
 | lookupStatus | 含义与下一步 |
 | --- | --- |
 | FOUND | 找到与原请求相符的DTO；Java仍须检查对象权限、任务关系、已有保存记录和审计后处理，不能据此认证真实执行或业务提交成功 |
 | CACHE_MISS | 只有404/RUN_NOT_FOUND才为缓存缺失；可能是重启/从未运行/其他进程，执行是否发生仍未知，查询Java持久历史 |
 | LOOKUP_FAILED | 传输、绑定、契约、解析或其他HTTP失败；不是缓存缺失，也不是成功，保留错误并人工核对 |
+
+客户端按原实现将错误码与HTTP状态及操作一起校验。健康GET收到404/RUN_NOT_FOUND属于错误契约，不是原run缓存缺失；恢复结果为LOOKUP_FAILED且不继续结果GET或POST。POST的错误码若与状态不符，或者出现未支持的新错误码，则为ERROR_CONTRACT并保留结果未知/原绑定，仅按原runId GET核对。正常原状态/错误码组合保持，详见[调用端请求绑定](Python_Core_Validation.md#调用端请求绑定)。这些检查不认证上游执行真实性。
 
 所有结果都保持`businessHistoryRequired=true`、`executionOccurred=null`、`resubmissionAuthorized=false`，核对不作新的提交授权。Java沿用原任务状态；可在FAILED及审计中保留“上游结果未确认”，不需要为此改共同DTO或新增一个Python状态。错误不携带任意服务正文；缺失/失败的报告没有输入量表或特征值。
 

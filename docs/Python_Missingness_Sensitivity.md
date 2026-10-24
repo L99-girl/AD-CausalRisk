@@ -18,6 +18,8 @@ MODALITY默认按COGNITION（MMSE/MoCA/CDR-SB）、GENETICS（APOE）、MRI（�
 
 每个场景保留基线/请求摘要、实际置null数量、移除行/非空值数量、原数组sourceMap。sourceMap为子请求保留行对应基线数组的1基序号；后续不能把删除行后的新序号误作原始行。它不是CSV物理行或认证来源ID。
 
+原契约允许不提供featureValue，计划也保留该省略；移除这种行会计入removedFeatureRows，removedFeatureValues只数真实非空值，不能把未提供值算成观测或补零。未移除基线和来源映射仍保留原字段存在性；后续比较可处理这类合法原请求，详见[可选数值缺失](Python_Core_Validation.md#可选数值缺失)。
+
 输入1—100个唯一对象/原runId，同一数据/模型版本与窗口；输入JSON合计上限1MiB。最多1000场景，场景编码总量4MiB、整计划上限6MiB。默认100对象×8可用，信号级16对象×64因超过1000被拒绝；调用方应明确分批和分配ID，不会自动拆批或续跑。validate_missingness_plan会根据原请求/分组/显式编号重新生成全部场景，并检查精确JSON内容（含mask类型、来源映射、摘要和执行标志），拒绝只改hash或冒改字段的计划。
 
 计划生成与校验不调用评分器、HTTP、文件或业务数据库；scoringExecutedByThisCall/networkUsedByThisCall=false，clinicalConfidence=null，alternativeModelSelected=false。原阻断请求仍可被计划化用于诊断，不据此认定其已经合格；不支持的窗口仍保持原值，不能通过缺失组合改成24个月。

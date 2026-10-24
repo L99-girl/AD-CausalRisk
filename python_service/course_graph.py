@@ -70,6 +70,16 @@ def default_graph_template():
                       for source, target in EDGE_SPECS]}
 
 
+def validate_default_course_graph(graph, feature_map):
+    """Validate the workflow's original fixed graph before scoring any input.
+
+    Candidate templates remain offline; this check grants no causal meaning.
+    """
+    _require(type(graph) is dict, 'WORKFLOW_GRAPH')
+    _require(_digest(graph) == _digest(default_course_graph(feature_map)), 'WORKFLOW_GRAPH')
+    return graph
+
+
 def validate_graph_template(template):
     """Validate a bounded candidate without authorizing it for any scorer."""
     template = _snapshot(template, 64 * 1024)

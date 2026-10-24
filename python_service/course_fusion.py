@@ -29,9 +29,10 @@ def select_fusion(payload):
     selected, seen, conflict = {}, {}, False
     for row in sorted(eligible, key=lambda row: row['recordedAt']):
         key = (row['featureName'], row['recordedAt'])
-        conflict |= key in seen and seen[key] != row['featureValue']
-        seen[key] = row['featureValue']
-        if row['featureValue'] is not None:
+        value = row.get('featureValue')
+        conflict |= key in seen and seen[key] != value
+        seen[key] = value
+        if value is not None:
             selected[row['featureName']] = row
     has_cognition = latest is not None and any(latest.get(key) is not None for key in COGNITION)
     ambiguous = latest is not None and sum(row['visitDate'] == cutoff for row in visits) > 1
@@ -66,6 +67,17 @@ class FusionError(ValueError):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
+
+
+def validate_fusion_selection(selection, payload):
+    """Check a stage snapshot against the unchanged deterministic selection.
+
+    This verifies tool consistency with supplied observations, not source
+    authenticity, historical availability or a research baseline definition.
+    """
+    _require(type(selection) is dict, 'FUSION_SELECTION')
+    _require(_input_digest(selection) == _input_digest(select_fusion(payload)), 'FUSION_SELECTION')
+    return selection
 
 
 def _require(condition, code):
@@ -123,7 +135,10 @@ def _signal_evidence(request, selected, name, lookback_days, min_span_days):
             continue
         field = name if table == 'visits' else 'featureValue'
         measured = date.fromisoformat(row['visitDate' if table == 'visits' else 'recordedAt'])
-        rows.append((measured, row.get(field), {'table': table, 'recordIndex': position, 'field': field}))
+        source = {'table': table, 'recordIndex': position, 'field': field}
+        if field not in row:
+            source['fieldPresent'] = False
+        rows.append((measured, row.get(field), source))
     included = [row for row in rows if index is not None and start <= row[0] <= index]
     groups = {}
     for measured, value, source in included:

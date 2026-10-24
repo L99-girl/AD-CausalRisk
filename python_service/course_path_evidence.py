@@ -36,7 +36,7 @@ def _feature_sources(request, observation):
              'observedAt': row['recordedAt'], 'availableAt': None,
              'evidenceLevel': 'DECLARED_SYNTHETIC_OBSERVATION'}
             for index, row in enumerate(request['features'])
-            if all(row[key] == observation[key] for key in ('featureName', 'featureValue', 'recordedAt', 'unit'))]
+            if all(row.get(key) == observation[key] for key in ('featureName', 'featureValue', 'recordedAt', 'unit'))]
 
 
 def _term_sources(request, selected, term):

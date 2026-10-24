@@ -94,7 +94,7 @@ def render_course_html(request, result, *, audience='research', stylesheet_href=
             for name in ('mmse', 'moca', 'cdrSb'):
                 rows.append((visit['visitCode']+' / '+name, visit.get(name), '分', visit['visitDate']))
         for feature in report['sources']['features']:
-            rows.append((feature['featureName'], feature['featureValue'], feature['unit'], feature['recordedAt']))
+            rows.append((feature['featureName'], feature.get('featureValue'), feature['unit'], feature['recordedAt']))
         source_rows = ''.join('<tr>'+''.join(f'<td>{e("缺失" if value is None else value)}</td>' for value in row)+'</tr>' for row in rows)
         content += '<section><h2>原合成输入与声明来源</h2><div class="table-scroll" tabindex="0" role="region" aria-label="合成输入"><table><thead><tr><th>字段</th><th>原值</th><th>单位</th><th>声明日期</th></tr></thead><tbody>'+source_rows+'</tbody></table></div></section>'
         stage_rows = ''.join(f'<tr><td>{e(row["stage"])}</td><td>{e(row["status"])}</td><td>{e(row["durationMs"])} ms</td></tr>' for row in report['stages'])
