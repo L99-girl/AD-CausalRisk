@@ -494,21 +494,56 @@ class VisitApiTest {
         assertThat(body.get("message").asText()).contains("visitDate");
     }
 
+    /**
+     * {@code visitDate} is a String pinned by {@code @Pattern}, so a shape the contract forbids is
+     * a bean-validation failure ({@code VALIDATION_ERROR}), not a JSON parse failure. That is what
+     * catches {@code +02025-01-01}: Jackson's ISO-8601 parser accepts a signed extended year and
+     * would have silently stored 2025-01-01.
+     */
     @Test
-    void malformedVisitDateIsRejectedAsMalformedJsonNotAsValidationError() throws Exception {
+    void visitDateOutsideTheContractShapeIsRejected() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-BADDATE");
 
-        // "2025-1-1" is not ISO-8601, so it fails during deserialization (MALFORMED_JSON)
-        // rather than during bean validation (VALIDATION_ERROR).
+        for (String loose : new String[] {"2025-1-1", "+02025-01-01", "2025/01/01", " 2025-01-01"}) {
+            JsonNode body = bodyOf(mockMvc.perform(post("/api/subjects/" + subject.getId() + "/visits")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    Map.of("visitCode", "BL", "visitDate", loose)))
+                            .session(admin))
+                    .andExpect(status().isBadRequest())
+                    .andReturn());
+
+            assertThat(body.get("errorCode").asText())
+                    .as("visitDate '%s'", loose)
+                    .isEqualTo("VALIDATION_ERROR");
+        }
+
+        assertThat(bodyOf(mockMvc.perform(get("/api/subjects/" + subject.getId()).session(admin))
+                .andExpect(status().isOk())
+                .andReturn()).get("data").get("visits").size())
+                .as("nothing may be written for a rejected date")
+                .isZero();
+    }
+
+    /**
+     * {@code @Pattern} only checks the shape, so an impossible calendar date reaches the service.
+     * It must be a 400, never a {@code DateTimeParseException} that becomes a 500.
+     */
+    @Test
+    void impossibleCalendarDateIsRejectedAsValidationErrorNotServerError() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-FEB30");
+
         JsonNode body = bodyOf(mockMvc.perform(post("/api/subjects/" + subject.getId() + "/visits")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"visitCode\":\"BL\",\"visitDate\":\"2025-1-1\"}")
+                        .content("{\"visitCode\":\"BL\",\"visitDate\":\"2025-02-30\"}")
                         .session(admin))
                 .andExpect(status().isBadRequest())
                 .andReturn());
 
-        assertThat(body.get("errorCode").asText()).isEqualTo("MALFORMED_JSON");
+        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(body.get("message").asText()).contains("visitDate");
     }
 
     @Test

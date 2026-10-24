@@ -1,6 +1,7 @@
 package com.adcausalrisk.backend.visit;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 import com.adcausalrisk.backend.subject.dto.VisitResultView;
 import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
@@ -21,15 +22,20 @@ public final class VisitMapper {
      * Builds a fresh entity for one subject. {@code id} is owned by the database, and
      * {@code subjectId} comes from the request path rather than the body.
      *
+     * <p>{@code visitDate} arrives already parsed: the request carries the raw text so that
+     * {@code @Pattern} can enforce the contract's {@code ^\d{4}-\d{2}-\d{2}$}, and the service
+     * owns turning it into a date (and reporting an impossible one as a 400). Parsing here would
+     * hide that failure inside a mapper.
+     *
      * <p>Scores are passed through <b>unchanged</b>. The entity derives both stored forms from
      * them - the raw text and the rounded {@code DECIMAL(5,2)} display column - so this mapper
      * must not pre-round or normalise anything.
      */
-    public static Visit toEntity(Long subjectId, VisitCreateRequest request) {
+    public static Visit toEntity(Long subjectId, VisitCreateRequest request, LocalDate visitDate) {
         return new Visit(
                 subjectId,
                 request.visitCode(),
-                request.visitDate(),
+                visitDate,
                 request.mmse(),
                 request.moca(),
                 request.cdrSb());

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
@@ -87,6 +88,9 @@ public class CsvImportParser {
     private static final int VISIT_CODE_MAX = 50;
 
     private static final String SUBJECT_CODE_PATTERN = "^DEMO-[A-Za-z0-9-]{1,45}$";
+
+    /** The contract's date shape: four-digit year, two-digit month and day, nothing else. */
+    private static final Pattern STRICT_DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
 
     /** The Python preflight caps per subject, on top of the per-table row limits. */
     public static final int MAX_VISITS_PER_SUBJECT = 100;
@@ -199,7 +203,7 @@ public class CsvImportParser {
 
             if (isBlankOrInvisible(alias)) {
                 issue(issues, row, "alias", "不能为空");
-            } else if (alias.length() > ALIAS_MAX) {
+            } else if (characterCount(alias) > ALIAS_MAX) {
                 issue(issues, row, "alias", "长度不能超过 " + ALIAS_MAX);
             }
 
@@ -238,9 +242,11 @@ public class CsvImportParser {
             }
 
             String visitCode = record.field(1);
-            if (visitCode.isEmpty()) {
+            // Same rule as the create API's @NotBlank and the Python preflight: a code made of
+            // spaces (or invisible characters) is not a code, even though it is not empty.
+            if (isBlankOrInvisible(visitCode)) {
                 issue(issues, row, "visitCode", "不能为空");
-            } else if (visitCode.length() > VISIT_CODE_MAX) {
+            } else if (characterCount(visitCode) > VISIT_CODE_MAX) {
                 issue(issues, row, "visitCode", "长度不能超过 " + VISIT_CODE_MAX);
             }
 
@@ -344,6 +350,17 @@ public class CsvImportParser {
     // ===================================================================
 
     /**
+     * Characters as a database counts them, not Java's UTF-16 units.
+     *
+     * <p>{@code VARCHAR(100)} under utf8mb4 holds 100 <i>characters</i>, so an emoji must count
+     * once. {@link String#length()} counts it twice, which would reject a 60-emoji alias that the
+     * column can store perfectly well.
+     */
+    private static int characterCount(String text) {
+        return text.codePointCount(0, text.length());
+    }
+
+    /**
      * True when a value would look empty to a reader: nothing but whitespace or zero-width
      * characters. {@link String#isBlank()} on its own lets a value made of U+200B through, which
      * renders as an empty alias.
@@ -365,14 +382,23 @@ public class CsvImportParser {
     }
 
     /**
-     * A date cell. Both rules apply to <i>every</i> date field: a future date is not a recorded
-     * observation, and year 0 (or earlier) is not a real calendar date in this domain even though
-     * ISO-8601 lets {@link LocalDate} represent it.
+     * A date cell. Three rules apply to <i>every</i> date field: the text must be exactly
+     * {@code yyyy-MM-dd}, the date must not be in the future, and year 0 (or earlier) is not a
+     * real calendar date in this domain.
+     *
+     * <p>The format is pinned by a regex before parsing because {@link LocalDate#parse} follows
+     * ISO-8601, which happily accepts a signed extended year: {@code +02025-01-01} would be
+     * silently read as 2025-01-01. The contract declares {@code ^\d{4}-\d{2}-\d{2}$}, so a value
+     * outside that shape is a data error, not something to normalise.
      */
     private static LocalDate date(String text, int row, String field, LocalDate today,
                                   List<RowIssue> issues) {
         if (text.isEmpty()) {
             issue(issues, row, field, "不能为空");
+            return null;
+        }
+        if (!STRICT_DATE.matcher(text).matches()) {
+            issue(issues, row, field, "不是有效日期，应为 yyyy-MM-dd");
             return null;
         }
         LocalDate parsed;

@@ -267,6 +267,21 @@ class CsvImportParserTest {
                 .satisfies(issue -> assertThat(issue.message()).contains("该档案下已存在"));
     }
 
+    /**
+     * The create API's {@code @NotBlank} rejects a whitespace-only code; the importer must agree,
+     * otherwise three spaces become a real visit code that the API would have refused.
+     */
+    @Test
+    void visitCodeOfOnlySpacesIsRejected() {
+        ParsedImport parsed = parse(VISIT_HEADER + "DEMO-002,   ,2025-01-01,28,25,0.5\n");
+
+        assertThat(parsed.validRows()).isZero();
+        assertThat(parsed.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.field()).isEqualTo("visitCode");
+            assertThat(issue.message()).contains("不能为空");
+        });
+    }
+
     @Test
     void futureVisitDateIsRejected() {
         assertThat(parse(VISIT_HEADER + "DEMO-002,V1,2026-06-01,28,25,0.5\n").issues())
@@ -502,22 +517,50 @@ class CsvImportParserTest {
     /** ISO-8601 lets LocalDate represent year 0; a clinical record may not. */
     @Test
     void datesInYearZeroOrEarlierAreRejected() {
-        for (String impossible : new String[] {"0000-01-01", "-0001-01-01"}) {
-            assertThat(parse(VISIT_HEADER + "DEMO-002,V1," + impossible + ",28,25,0.5\n").issues())
-                    .as("visitDate %s", impossible)
+        // "0000-01-01" matches the strict shape, so it is the year rule that has to reject it.
+        // Negative years ("-0001-01-01") already fail the shape check, covered below.
+        assertThat(parse(VISIT_HEADER + "DEMO-002,V1,0000-01-01,28,25,0.5\n").issues())
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.field()).isEqualTo("visitDate");
+                    assertThat(issue.message()).contains("年份必须大于 0");
+                });
+
+        assertThat(parse(FEATURE_HEADER + "DEMO-001,APOE_E4_COUNT,1,0000-01-01,count\n").issues())
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.field()).isEqualTo("recordedAt");
+                    assertThat(issue.message()).contains("年份必须大于 0");
+                });
+    }
+
+    /**
+     * The date cell must be exactly {@code yyyy-MM-dd}. {@code LocalDate.parse} alone is not
+     * enough: ISO-8601 accepts a signed extended year, so {@code +02025-01-01} would silently
+     * become 2025-01-01 - a value the contract's {@code ^\d{4}-\d{2}-\d{2}$} forbids.
+     */
+    @Test
+    void dateTextOutsideTheStrictShapeIsRejected() {
+        String[] loose = {
+            "+02025-01-01", "-0001-01-01", "2025-1-1", "2025/01/01", "20250101", " 2025-01-01"
+        };
+
+        for (String text : loose) {
+            assertThat(parse(VISIT_HEADER + "DEMO-002,V1," + text + ",28,25,0.5\n").issues())
+                    .as("visitDate '%s'", text)
                     .singleElement()
                     .satisfies(issue -> {
                         assertThat(issue.field()).isEqualTo("visitDate");
-                        assertThat(issue.message()).contains("年份必须大于 0");
+                        assertThat(issue.message()).contains("yyyy-MM-dd");
                     });
 
             assertThat(parse(FEATURE_HEADER
-                    + "DEMO-001,APOE_E4_COUNT,1," + impossible + ",count\n").issues())
-                    .as("recordedAt %s", impossible)
+                    + "DEMO-001,APOE_E4_COUNT,1," + text + ",count\n").issues())
+                    .as("recordedAt '%s'", text)
                     .singleElement()
                     .satisfies(issue -> {
                         assertThat(issue.field()).isEqualTo("recordedAt");
-                        assertThat(issue.message()).contains("年份必须大于 0");
+                        assertThat(issue.message()).contains("yyyy-MM-dd");
                     });
         }
     }
@@ -557,5 +600,42 @@ class CsvImportParserTest {
             assertThat(issue.field()).isEqualTo("alias");
             assertThat(issue.message()).contains("不能为空");
         });
+    }
+
+    /**
+     * Length limits count characters the way MySQL counts them for {@code VARCHAR} under
+     * utf8mb4: an emoji is one character but two UTF-16 units, so {@code String.length()} would
+     * reject a 60-emoji alias that the column stores perfectly well.
+     */
+    @Test
+    void emojiCountsAsOneCharacterForAlias() {
+        String emoji = "\uD83D\uDE00";
+
+        ParsedImport atLimit = parse(SUBJECT_HEADER + "DEMO-060," + emoji.repeat(100) + ",ACTIVE\n");
+        assertThat(atLimit.validRows()).as("100 emoji are 100 characters").isEqualTo(1);
+
+        ParsedImport overLimit = parse(SUBJECT_HEADER + "DEMO-061,"
+                + emoji.repeat(101) + ",ACTIVE\n");
+        assertThat(overLimit.validRows()).isZero();
+        assertThat(overLimit.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.field()).isEqualTo("alias");
+            assertThat(issue.message()).contains("长度不能超过 100");
+        });
+    }
+
+    /** The same character semantics apply to the visit code, whose column is VARCHAR(50). */
+    @Test
+    void emojiCountsAsOneCharacterForVisitCode() {
+        String emoji = "\uD83D\uDE00";
+
+        ParsedImport atLimit = parse(VISIT_HEADER + "DEMO-002," + emoji.repeat(50)
+                + ",2025-01-01,28,25,0.5\n");
+        assertThat(atLimit.validRows()).as("50 emoji are 50 characters").isEqualTo(1);
+
+        ParsedImport overLimit = parse(VISIT_HEADER + "DEMO-002," + emoji.repeat(51)
+                + ",2025-01-01,28,25,0.5\n");
+        assertThat(overLimit.validRows()).isZero();
+        assertThat(overLimit.issues()).singleElement()
+                .satisfies(issue -> assertThat(issue.message()).contains("长度不能超过 50"));
     }
 }

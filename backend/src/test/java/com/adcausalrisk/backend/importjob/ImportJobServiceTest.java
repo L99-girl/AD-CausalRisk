@@ -171,6 +171,22 @@ class ImportJobServiceTest {
     }
 
     /**
+     * Ownership is not authorisation to write. An account demoted after preview (RESEARCHER ->
+     * PATIENT) still owns its job, but must not be able to commit it.
+     */
+    @Test
+    void commitRequiresTheImportPrivilegeEvenForTheOwner() {
+        AppUserPrincipal demoted =
+                new AppUserPrincipal(USER_ID, "researcher", "", List.of("PATIENT"), true);
+
+        assertThatThrownBy(() -> service().commit(1L, demoted))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("无权导入数据");
+
+        verifyNoInteractions(jobRepository);
+    }
+
+    /**
      * A failed insert that is not an idempotency-key collision (a foreign key, a truncated key)
      * must still be a controlled 400 - the race handler previously rethrew the raw exception,
      * which became a 500.

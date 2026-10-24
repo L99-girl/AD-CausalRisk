@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -129,6 +130,20 @@ public class GlobalExceptionHandler {
     ResponseEntity<Envelope<Void>> handleOversizedUpload(MaxUploadSizeExceededException exception) {
         log.debug("upload rejected because it exceeded the configured limit", exception);
         return respond(ErrorCode.VALIDATION_ERROR, "上传文件超过大小限制");
+    }
+
+    /**
+     * A multipart request that could not be parsed at all - a missing boundary, or a body that is
+     * not really multipart. Spring raises this before the controller runs, so without a handler of
+     * its own it would fall through to the catch-all and become a 500 for what is a client error.
+     *
+     * <p>{@link MaxUploadSizeExceededException} is a subclass of this type and keeps its own,
+     * more specific handler above; Spring resolves the closest match first.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<Envelope<Void>> handleMalformedMultipart(MultipartException exception) {
+        log.debug("multipart request could not be parsed", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "multipart 请求格式无效");
     }
 
     /**

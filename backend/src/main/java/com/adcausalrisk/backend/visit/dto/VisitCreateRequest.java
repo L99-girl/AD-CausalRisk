@@ -1,13 +1,13 @@
 package com.adcausalrisk.backend.visit.dto;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -22,11 +22,14 @@ import jakarta.validation.constraints.Size;
  * <ul>
  *   <li>{@code @NotBlank @Size(max = 50)} mirrors {@code visit_code VARCHAR(50) NOT NULL}
  *       and the contract's {@code minLength: 1, maxLength: 50}.</li>
- *   <li>{@code @NotNull} on {@code visitDate} mirrors {@code visit_date DATE NOT NULL}. The
- *       contract's {@code format: date} and {@code ^\d{4}-\d{2}-\d{2}$} pattern come for free
- *       from {@link LocalDate} plus Jackson's ISO-8601 handling: a malformed date string fails
- *       during deserialization, i.e. 400 {@code MALFORMED_JSON}, while a missing date fails
- *       {@code @NotNull}, i.e. 400 {@code VALIDATION_ERROR}.</li>
+ *   <li>{@code visitDate} is a {@code String} pinned by {@code @Pattern} to the contract's
+ *       {@code ^\d{4}-\d{2}-\d{2}$}, not a {@link java.time.LocalDate}. A {@code LocalDate}
+ *       field does <i>not</i> enforce that shape: Jackson parses it with ISO-8601, whose year
+ *       accepts a sign and a variable number of digits, so {@code +02025-01-01} would silently
+ *       become 2025-01-01 and {@code 2025-1-1} would pass as well. The pattern rejects both with
+ *       400 {@code VALIDATION_ERROR}, and a missing value fails {@code @NotNull}. The service
+ *       then parses the text, so a shape-valid but impossible date ({@code 2025-02-30}) is also
+ *       a 400 rather than a 500.</li>
  *   <li>{@code @DecimalMin}/{@code @DecimalMax} mirror the {@code ck_visit_*} CHECK
  *       constraints. {@code @Min}/{@code @Max} are not used because they do not support
  *       {@link BigDecimal}.</li>
@@ -45,7 +48,9 @@ import jakarta.validation.constraints.Size;
  */
 public record VisitCreateRequest(
         @NotBlank @Size(max = 50) String visitCode,
-        @NotNull LocalDate visitDate,
+        @NotNull
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式须为 yyyy-MM-dd")
+        String visitDate,
         @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal mmse,
         @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal moca,
         @DecimalMin("0") @DecimalMax("18") @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {

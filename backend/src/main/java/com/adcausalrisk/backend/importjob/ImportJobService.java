@@ -197,6 +197,13 @@ public class ImportJobService {
      */
     @Transactional
     public ImportJobView commit(Long jobId, AppUserPrincipal principal) {
+        // The privilege is checked again here instead of being trusted from the preview: an
+        // account demoted between preview and commit (RESEARCHER -> PATIENT) must not be able to
+        // write the rows it prepared. Ownership alone is insufficient - the role is what
+        // authorises writing subject/visit/feature data at all.
+        if (!accessPolicy.canCreate(principal)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "无权导入数据");
+        }
         // Taken under a write lock: two concurrent commits would otherwise both read
         // PREVIEW_READY and both insert, duplicating the rows that have no unique constraint
         // (features). The lock makes the second one block and then observe COMMITTED.

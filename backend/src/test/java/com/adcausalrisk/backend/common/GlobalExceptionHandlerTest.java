@@ -9,6 +9,8 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 
 /**
  * Unit tests for the handlers that only matter because they previously fell through to the
@@ -52,5 +54,30 @@ class GlobalExceptionHandlerTest {
             assertThat(body.errorCode()).isEqualTo("VALIDATION_ERROR");
             assertThat(body.message()).contains("稍后重试");
         }
+    }
+
+    /**
+     * A multipart request Spring cannot parse at all (missing boundary, truncated body) is raised
+     * before the controller, so it needs its own handler or it becomes a 500 for a client error.
+     * The oversized-upload handler must keep its more specific message, because
+     * {@code MaxUploadSizeExceededException} is a subclass of this type.
+     */
+    @Test
+    void malformedMultipartIsReportedAsValidationErrorNotServerError() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+        ResponseEntity<Envelope<Void>> malformed =
+                handler.handleMalformedMultipart(new MultipartException("no multipart boundary"));
+        ResponseEntity<Envelope<Void>> oversized =
+                handler.handleOversizedUpload(new MaxUploadSizeExceededException(1024L));
+
+        assertThat(malformed.getStatusCode().value()).isEqualTo(400);
+        assertThat(malformed.getBody()).isNotNull();
+        assertThat(malformed.getBody().errorCode()).isEqualTo("VALIDATION_ERROR");
+        assertThat(malformed.getBody().message()).contains("multipart");
+
+        assertThat(oversized.getStatusCode().value()).isEqualTo(400);
+        assertThat(oversized.getBody()).isNotNull();
+        assertThat(oversized.getBody().message()).contains("大小限制");
     }
 }

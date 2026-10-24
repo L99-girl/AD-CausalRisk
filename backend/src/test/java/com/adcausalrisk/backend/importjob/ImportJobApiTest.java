@@ -18,6 +18,9 @@ import com.adcausalrisk.backend.visit.VisitRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -87,6 +90,9 @@ class ImportJobApiTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // ===================================================================
     // 1. Preview
@@ -444,6 +450,44 @@ class ImportJobApiTest {
 
         assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
         assertThat(subjectRepository.findBySubjectCode("DEMO-761")).isEmpty();
+    }
+
+    /**
+     * Researcher previews, then the account is demoted to PATIENT and logs in again. The job still
+     * belongs to that user, but committing writes clinical data - a privilege the role no longer
+     * grants. The row must not be inserted.
+     */
+    @Test
+    void commitAfterBeingDemotedToPatientIsRefused() throws Exception {
+        MockHttpSession researcher = login("researcher");
+        JsonNode preview = bodyOf(mockMvc.perform(previewRequest("key-demoted",
+                        SUBJECT_HEADER + "DEMO-766,甲,ACTIVE\n").session(researcher))
+                .andExpect(status().isOk())
+                .andReturn());
+        long jobId = preview.get("data").get("jobId").asLong();
+
+        // RESEARCHER out, PATIENT in; the test transaction rolls both back.
+        jdbc.update("DELETE FROM user_role WHERE user_id ="
+                + " (SELECT id FROM sys_user WHERE username = 'researcher')"
+                + " AND role_id = (SELECT id FROM sys_role WHERE role_code = 'RESEARCHER')");
+        jdbc.update("INSERT INTO user_role (user_id, role_id)"
+                + " SELECT u.id, r.id FROM sys_user u, sys_role r"
+                + " WHERE u.username = 'researcher' AND r.role_code = 'PATIENT'");
+        // The first login loaded SysUser into this transaction's persistence context, and JdbcTemplate
+        // bypassed it; without clearing, the second login would reuse the stale entity (and its old
+        // roles). A real deployment commits the role change outside any request context, so this is
+        // a test artifact rather than production behaviour.
+        entityManager.clear();
+
+        // A fresh login is what picks the new roles up; the old session still carries the old ones.
+        MockHttpSession demoted = login("researcher");
+
+        JsonNode body = bodyOf(mockMvc.perform(post(COMMIT_PATH, jobId).session(demoted))
+                .andExpect(status().isForbidden())
+                .andReturn());
+
+        assertThat(body.get("errorCode").asText()).isEqualTo("ACCESS_DENIED");
+        assertThat(subjectRepository.findBySubjectCode("DEMO-766")).isEmpty();
     }
 
     /**
