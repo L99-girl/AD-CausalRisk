@@ -4,15 +4,22 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.validation.ConstraintViolationException;
@@ -97,6 +104,74 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     ResponseEntity<Envelope<Void>> handleNoRoute(NoResourceFoundException exception) {
         return respond(ErrorCode.NOT_FOUND, null);
+    }
+
+    /**
+     * A required header is missing - for an import preview that is {@code Idempotency-Key}.
+     * Without this handler the catch-all would disguise the refusal as a 500.
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<Envelope<Void>> handleMissingHeader(MissingRequestHeaderException exception) {
+        return respond(ErrorCode.VALIDATION_ERROR, exception.getHeaderName() + " 不能为空");
+    }
+
+    /** A required multipart part is missing - for an import preview that is {@code file}. */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    ResponseEntity<Envelope<Void>> handleMissingPart(MissingServletRequestPartException exception) {
+        return respond(ErrorCode.VALIDATION_ERROR, exception.getRequestPartName() + " 不能为空");
+    }
+
+    /**
+     * The upload exceeded {@code spring.servlet.multipart.max-file-size}. The target contract
+     * declares no 413 for any operation, so an oversized upload is reported as a validation
+     * failure like every other refused request - never as a 500.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Envelope<Void>> handleOversizedUpload(MaxUploadSizeExceededException exception) {
+        log.debug("upload rejected because it exceeded the configured limit", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "上传文件超过大小限制");
+    }
+
+    /**
+     * A multipart request that could not be parsed at all - a missing boundary, or a body that is
+     * not really multipart. Spring raises this before the controller runs, so without a handler of
+     * its own it would fall through to the catch-all and become a 500 for what is a client error.
+     *
+     * <p>{@link MaxUploadSizeExceededException} is a subclass of this type and keeps its own,
+     * more specific handler above; Spring resolves the closest match first.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<Envelope<Void>> handleMalformedMultipart(MultipartException exception) {
+        log.debug("multipart request could not be parsed", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "multipart 请求格式无效");
+    }
+
+    /**
+     * A database constraint rejected the write. For the import commit this means the data moved
+     * between preview and commit (a subject was deleted, a code was taken) or otherwise conflicts
+     * with what is already stored. The contract declares no 409, so it is reported as a
+     * validation failure - and never as a 500.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<Envelope<Void>> handleIntegrityViolation(
+            DataIntegrityViolationException exception) {
+        log.debug("database constraint rejected the write", exception);
+        return respond(ErrorCode.VALIDATION_ERROR,
+                "数据在预览后发生变化或与现有数据冲突，请重新预览");
+    }
+
+    /**
+     * A write could not take the row lock within the database's wait limit, or it lost a deadlock.
+     * That is a retryable conflict rather than a server error, and it can happen in any module -
+     * the import commit waiting on the job row, but also a subject or visit insert losing a
+     * deadlock - so the message stays module-neutral. {@link CannotAcquireLockException} is a
+     * subclass of {@link PessimisticLockingFailureException}; both are listed to make the intent
+     * explicit.
+     */
+    @ExceptionHandler({CannotAcquireLockException.class, PessimisticLockingFailureException.class})
+    ResponseEntity<Envelope<Void>> handleLockConflict(PessimisticLockingFailureException exception) {
+        log.debug("row lock could not be acquired in time", exception);
+        return respond(ErrorCode.VALIDATION_ERROR, "操作冲突，请稍后重试");
     }
 
     @ExceptionHandler(Exception.class)

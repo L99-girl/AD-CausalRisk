@@ -7,7 +7,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
 import com.adcausalrisk.backend.common.BusinessException;
@@ -48,7 +47,7 @@ class VisitServiceTest {
             new AppUserPrincipal(1L, "admin", "", List.of("ADMIN"), true);
 
     private static final VisitCreateRequest REQUEST = new VisitCreateRequest(
-            VISIT_CODE, LocalDate.of(2025, 1, 1), new BigDecimal("28.0"), null, new BigDecimal("0.5"));
+            VISIT_CODE, "2025-01-01", new BigDecimal("28.0"), null, new BigDecimal("0.5"));
 
     @Test
     void duplicateThatSlipsPastThePreCheckBecomesAValidationErrorAndNotAServerError() {
@@ -76,5 +75,27 @@ class VisitServiceTest {
                     // The whole point of the branch: 400, not 500.
                     assertThat(errorCode.status().value()).isEqualTo(400);
                 });
+    }
+
+    /**
+     * {@code @Pattern} only guarantees the shape, so a shape-valid but impossible date reaches
+     * the service. It must be a business failure, not a {@code DateTimeParseException} (500).
+     */
+    @Test
+    void impossibleCalendarDateBecomesAValidationError() {
+        VisitRepository visitRepository = mock(VisitRepository.class);
+        SubjectRepository subjectRepository = mock(SubjectRepository.class);
+        SubjectAccessPolicy accessPolicy = new SubjectAccessPolicy(mock(SubjectPermissionRepository.class));
+        VisitCreateRequest impossible = new VisitCreateRequest(
+                VISIT_CODE, "2025-02-30", new BigDecimal("28.0"), null, null);
+
+        VisitService service = new VisitService(
+                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
+
+        assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, impossible, ADMIN))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("visitDate")
+                .satisfies(thrown -> assertThat(((BusinessException) thrown).errorCode())
+                        .isEqualTo(ErrorCode.VALIDATION_ERROR));
     }
 }

@@ -68,7 +68,7 @@ class SchemaMigrationTest {
                 "SELECT version FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
     }
 
     /**
@@ -102,6 +102,38 @@ class SchemaMigrationTest {
                     .as("%s must be a character column", columnName).contains("char");
             assertThat(shape.precision()).as("%s length", columnName).isEqualTo(64);
         }
+    }
+
+    /**
+     * V5 and V6 add the storage an import job needs between preview and commit. A missing or
+     * mis-typed column here would only surface as a failed INSERT at runtime, so the shape is
+     * asserted up front.
+     */
+    @Test
+    void dataImportJobHasPreviewStorageColumns() throws SQLException {
+        ColumnShape importType = columnShape("data_import_job", "import_type");
+        ColumnShape previewCsv = columnShape("data_import_job", "preview_csv");
+        ColumnShape sourceDigest = columnShape("data_import_job", "source_digest");
+        ColumnShape previewDigest = columnShape("data_import_job", "preview_digest");
+
+        assertThat(importType.typeName().toLowerCase(Locale.ROOT))
+                .as("import_type must be text").contains("char");
+        assertThat(importType.precision()).as("import_type length").isEqualTo(20);
+
+        // TEXT: H2 reports CHARACTER VARYING with a huge capacity in MODE=MySQL, MySQL reports
+        // TEXT. Either way it must be a character column wide enough for the 30000-byte cap.
+        assertThat(previewCsv.typeName().toLowerCase(Locale.ROOT))
+                .as("preview_csv must be text").contains("char");
+        assertThat(previewCsv.precision()).as("preview_csv capacity").isGreaterThanOrEqualTo(30_000);
+
+        // A SHA-256 digest written as hex is exactly 64 characters.
+        assertThat(sourceDigest.typeName().toLowerCase(Locale.ROOT))
+                .as("source_digest must be text").contains("char");
+        assertThat(sourceDigest.precision()).as("source_digest length").isEqualTo(64);
+
+        assertThat(previewDigest.typeName().toLowerCase(Locale.ROOT))
+                .as("preview_digest must be text").contains("char");
+        assertThat(previewDigest.precision()).as("preview_digest length").isEqualTo(64);
     }
 
     /** JDBC type name, precision/length (COLUMN_SIZE) and scale (DECIMAL_DIGITS) of one column. */

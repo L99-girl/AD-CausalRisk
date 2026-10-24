@@ -1,5 +1,8 @@
 package com.adcausalrisk.backend.visit;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -77,6 +80,11 @@ public class VisitService {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "无权创建访视");
         }
 
+        // Parsed before any database work: the DTO carries the raw text so @Pattern can enforce
+        // the contract's ^\d{4}-\d{2}-\d{2}$ (see VisitCreateRequest), and an impossible calendar
+        // date must fail here as a 400 rather than escaping as a DateTimeParseException (500).
+        LocalDate visitDate = parseVisitDate(request.visitDate());
+
         if (!subjectRepository.existsById(subjectId)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "档案不存在: " + subjectId);
         }
@@ -91,7 +99,8 @@ public class VisitService {
             // already happens at save() time, but that is an implementation detail of the id
             // strategy; flushing explicitly means a constraint violation is caught here instead
             // of escaping at commit as a 500.
-            Visit saved = visitRepository.saveAndFlush(VisitMapper.toEntity(subjectId, request));
+            Visit saved = visitRepository.saveAndFlush(
+                    VisitMapper.toEntity(subjectId, request, visitDate));
 
             // The response must report what the database actually stored. DECIMAL(5,2) rounds a
             // score that carries more than two decimals, and Hibernate does not copy the stored
@@ -109,6 +118,18 @@ public class VisitService {
             log.debug("visit insert rejected by a database constraint", exception);
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "无法保存访视：档案可能已被删除，或 visitCode 已存在");
+        }
+    }
+
+    /**
+     * Parses the strictly-shaped date text. {@code @Pattern} already guarantees the shape, so the
+     * only way this fails is a shape-valid but impossible date such as {@code 2025-02-30}.
+     */
+    private static LocalDate parseVisitDate(String text) {
+        try {
+            return LocalDate.parse(text);
+        } catch (DateTimeParseException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "visitDate 不是有效日期");
         }
     }
 }

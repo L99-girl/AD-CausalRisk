@@ -24,6 +24,14 @@ spring:
     # substitution removes any chance of Flyway rewriting them.
     placeholder-replacement: false
 
+  servlet:
+    multipart:
+      # CSV import uploads. The importer itself caps the three tables at 30000 UTF-8 bytes;
+      # these limits sit above that so an oversized upload is answered with a controlled 400
+      # by GlobalExceptionHandler instead of the framework's 1 MB default.
+      max-file-size: 64KB
+      max-request-size: 128KB
+
 server:
   port: 8080
   servlet:

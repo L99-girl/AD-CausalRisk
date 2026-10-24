@@ -41,7 +41,7 @@ public enum ErrorCode {
 
     METHOD_NOT_ALLOWED(405, HttpStatus.METHOD_NOT_ALLOWED, "请求方法不被支持"),
 
-    UNSUPPORTED_MEDIA_TYPE(415, HttpStatus.UNSUPPORTED_MEDIA_TYPE, "仅支持 application/json 请求体"),
+    UNSUPPORTED_MEDIA_TYPE(415, HttpStatus.UNSUPPORTED_MEDIA_TYPE, "不支持的请求 Content-Type"),
 
     /** Unexpected server failure. The detail stays in the log and never reaches the client. */
     INTERNAL_ERROR(500, HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");

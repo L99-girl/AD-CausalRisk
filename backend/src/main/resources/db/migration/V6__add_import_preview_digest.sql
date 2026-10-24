@@ -1,0 +1,23 @@
+-- ============================================================================
+-- Close the preview/commit consistency gap.
+--
+-- Until now commit compared only the *number* of valid rows against the preview. A file where
+-- one subject is rejected because it already exists and another is accepted can swap places
+-- between preview and commit while the count stays the same:
+--
+--   preview : DEMO-A exists -> invalid, DEMO-B is new -> valid   (validRows = 1)
+--   commit  : DEMO-A deleted, DEMO-B created -> the same 1 row, but the other one
+--
+-- The count check passes and commit would insert DEMO-A, a row the caller never saw as valid.
+--
+-- preview_digest stores a SHA-256 over the sorted identities of the rows that passed the
+-- preview, so commit can prove it is about to insert exactly the set the caller approved.
+-- It is 64 hex characters, matching source_digest and idempotency_record.request_digest.
+--
+-- Rows written before this migration have a NULL digest; commit falls back to the count check
+-- for them (a weaker guarantee, documented in ImportJobService).
+--
+-- PORTABILITY
+-- ADD COLUMN works on MySQL 8 and H2 2.x in MODE=MySQL (verified on H2 2.3.232).
+-- ============================================================================
+ALTER TABLE data_import_job ADD COLUMN preview_digest VARCHAR(64) NULL;
