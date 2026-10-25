@@ -411,17 +411,21 @@ class VisitApiTest {
     // ===================================================================
 
     @Test
-    void mmseAboveMaximumIsRejected() throws Exception {
+    void mmseAboveClinicalMaximumIsAcceptedForQcToCatch() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-MMSE-HIGH");
 
         JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 30.1, null, null)
                         .session(admin))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("mmse");
+        assertThat(body.get("data").get("mmse").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("30.1"));
+
+        JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(fromDetail.get("mmse").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("30.1"));
     }
 
     @Test
@@ -438,17 +442,21 @@ class VisitApiTest {
     }
 
     @Test
-    void cdrSbAboveMaximumIsRejected() throws Exception {
+    void cdrSbAboveClinicalMaximumIsAcceptedForQcToCatch() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-CDR-HIGH");
 
         JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", null, null, 18.1)
                         .session(admin))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("cdrSb");
+        assertThat(body.get("data").get("cdrSb").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("18.1"));
+
+        JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(fromDetail.get("cdrSb").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("18.1"));
     }
 
     @Test
