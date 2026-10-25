@@ -12,6 +12,7 @@ import math
 import re
 from .deepagent_contract import CONTRACT_VERSION, MODEL_VERSION, FEATURES, validate_request
 from .course_fusion import select_fusion
+from .course_clock import business_today
 
 TABLES = {
     'subjects': ('subjectCode', 'alias', 'status'),
@@ -91,6 +92,7 @@ def prepare_csv(payload):
         if len(issues) < MAX_ISSUES:
             issues.append({'table': table, 'row': row, 'field': field, 'code': code, 'severity': severity})
 
+    today = business_today()
     error_count = 0
     for table, columns in TABLES.items():
         text = texts[table]
@@ -132,7 +134,7 @@ def prepare_csv(payload):
                     date_field = 'visitDate' if table == 'visits' else 'recordedAt'
                     try:
                         raw = row[date_field]
-                        if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', raw) or date.fromisoformat(raw) > date.today():
+                        if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', raw) or date.fromisoformat(raw) > today:
                             raise ValueError()
                     except ValueError:
                         bad(date_field, 'DATE_INVALID_OR_FUTURE')

@@ -10,6 +10,7 @@ import re
 import time
 from datetime import date
 from typing import Any, Callable
+from .course_clock import business_today
 from .course_fusion import select_fusion, validate_fusion_selection
 from .course_graph import default_course_graph, validate_default_course_graph
 
@@ -61,11 +62,12 @@ def validate_request(payload: dict[str, Any]) -> None:
     visits, features = payload.get("visits"), payload.get("features")
     if not isinstance(visits, list) or len(visits) > 100 or not isinstance(features, list) or len(features) > 500:
         raise AgentContractError("访视或特征列表无效")
+    today = business_today()
     visit_codes: set[str] = set()
     for item in visits:
         if not isinstance(item, dict) or set(item) - {"visitCode", "visitDate", "mmse", "moca", "cdrSb"}:
             raise AgentContractError("访视字段无效")
-        _check_date(item.get("visitDate"), "访视日期")
+        _check_date(item.get("visitDate"), "访视日期", today)
         if not isinstance(item.get("visitCode"), str) or not item["visitCode"].strip() or len(item["visitCode"]) > 50:
             raise AgentContractError("访视编号无效")
         _check_utf8(item["visitCode"], "访视编号")
@@ -77,7 +79,7 @@ def validate_request(payload: dict[str, Any]) -> None:
     for item in features:
         if not isinstance(item, dict) or set(item) - {"featureName", "featureValue", "recordedAt", "unit"}:
             raise AgentContractError("特征字段无效")
-        _check_date(item.get("recordedAt"), "特征日期")
+        _check_date(item.get("recordedAt"), "特征日期", today)
         name = item.get("featureName")
         if not isinstance(name, str) or not name.strip() or len(name) > 100:
             raise AgentContractError("特征名称无效")
@@ -96,7 +98,7 @@ def validate_request(payload: dict[str, Any]) -> None:
             _check_number(value, name, None, None)
 
 
-def _check_date(value: Any, label: str) -> None:
+def _check_date(value: Any, label: str, today: date) -> None:
     if not isinstance(value, str):
         raise AgentContractError(f"{label}缺失")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
@@ -105,7 +107,7 @@ def _check_date(value: Any, label: str) -> None:
         parsed = date.fromisoformat(value)
     except ValueError as exc:
         raise AgentContractError(f"{label}格式无效") from exc
-    if parsed > date.today():
+    if parsed > today:
         raise AgentContractError(f"{label}不能晚于今天")
 
 
