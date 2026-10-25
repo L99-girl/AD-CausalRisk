@@ -28,6 +28,7 @@ import com.adcausalrisk.backend.qc.entity.QcAuditRecord.SourceType;
 import com.adcausalrisk.backend.qc.entity.QcAuditRecord.Status;
 import com.adcausalrisk.backend.qc.entity.QcAuditRecord.TargetType;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
+import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 import com.adcausalrisk.backend.subject.SubjectRepository;
 import com.adcausalrisk.backend.visit.VisitRepository;
 import com.adcausalrisk.backend.visit.entity.Visit;
@@ -82,15 +83,18 @@ public class QcAuditService {
     private final QcAuditRecordRepository qcAuditRecordRepository;
     private final VisitRepository visitRepository;
     private final SubjectRepository subjectRepository;
+    private final SubjectAccessPolicy subjectAccessPolicy;
     private final ObjectMapper objectMapper;
 
     public QcAuditService(QcAuditRecordRepository qcAuditRecordRepository,
                           VisitRepository visitRepository,
                           SubjectRepository subjectRepository,
+                          SubjectAccessPolicy subjectAccessPolicy,
                           ObjectMapper objectMapper) {
         this.qcAuditRecordRepository = qcAuditRecordRepository;
         this.visitRepository = visitRepository;
         this.subjectRepository = subjectRepository;
+        this.subjectAccessPolicy = subjectAccessPolicy;
         this.objectMapper = objectMapper;
     }
 
@@ -184,9 +188,10 @@ public class QcAuditService {
      * {@code page} and {@code pageSize} are passed as raw ints from the controller because
      * the service owns the clamp-to-[1,100] business rule.
      *
-     * <p>All authenticated users may view the QC queue. Fine-grained row-level visibility
-     * (e.g. DOCTOR only sees rows for their own subjects) can be added later by joining
-     * {@code subject_permission} — that policy belongs here, not in the repository.
+     * <p><b>Row-level visibility</b> — {@link SubjectAccessPolicy} is consulted before
+     * the query runs: ADMIN / RESEARCHER see every QC row; DOCTOR / PATIENT see only
+     * rows whose subject they hold at least one grant on. Users with zero grants
+     * receive an empty page immediately, without any repository call.
      */
     @Transactional(readOnly = true)
     public PageResult<QcListView> getQcList(QcListQueryRequest request,
@@ -205,8 +210,20 @@ public class QcAuditService {
                 statusFilter = null;
             }
         }
-        Page<QcJoinedRow> paged = qcAuditRecordRepository.findJoined(
-                request.subjectCode(), request.subjectAlias(), statusFilter, pageable);
+
+        Page<QcJoinedRow> paged;
+        if (subjectAccessPolicy.hasFullVisibility(principal)) {
+            paged = qcAuditRecordRepository.findJoined(
+                    request.subjectCode(), request.subjectAlias(), statusFilter, pageable);
+        } else {
+            Set<Long> grantedIds = subjectAccessPolicy.grantedSubjectIds(principal);
+            if (grantedIds.isEmpty()) {
+                paged = Page.empty(pageable);
+            } else {
+                paged = qcAuditRecordRepository.findJoinedBySubjectIds(
+                        grantedIds, request.subjectCode(), request.subjectAlias(), statusFilter, pageable);
+            }
+        }
 
         List<QcListView> items = paged.getContent().stream().map(this::toView).toList();
         return new PageResult<>(items, safePage, safePageSize, paged.getTotalElements());
@@ -280,12 +297,23 @@ public class QcAuditService {
      * buckets with zero rows default to 0 instead of being omitted, so the frontend
      * never sees a missing key.
      *
-     * <p>All authenticated users may view the dashboard — this is a high-level summary
-     * and does not leak per-subject data.
+     * <p><b>Row-level visibility</b> — same rule as {@link #getQcList}: ADMIN / RESEARCHER
+     * see totals for the whole queue; DOCTOR / PATIENT see totals scoped to subjects
+     * they hold grants on. Even summary counts leak information when a clinician should
+     * only see their own patients.
      */
     @Transactional(readOnly = true)
     public QcStatsView getQcStats(AppUserPrincipal principal) {
-        List<Object[]> rows = qcAuditRecordRepository.groupByStatus();
+        List<Object[]> rows;
+        if (subjectAccessPolicy.hasFullVisibility(principal)) {
+            rows = qcAuditRecordRepository.groupByStatus();
+        } else {
+            Set<Long> grantedIds = subjectAccessPolicy.grantedSubjectIds(principal);
+            rows = grantedIds.isEmpty()
+                    ? List.of()
+                    : qcAuditRecordRepository.groupByStatusBySubjectIds(grantedIds);
+        }
+
         Map<String, Long> counts = rows.stream()
                 .collect(Collectors.toMap(
                         arr -> ((Status) arr[0]).name(),

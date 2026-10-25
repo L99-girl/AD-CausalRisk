@@ -1,6 +1,7 @@
 package com.adcausalrisk.backend.qc;
 
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -104,8 +105,66 @@ public interface QcAuditRecordRepository extends JpaRepository<QcAuditRecord, Lo
                                 Pageable pageable);
 
     /**
+     * Row-level-visibility variant of {@link #findJoined} — restricts the result set
+     * to QC rows whose {@code subjectId} is in the caller's granted set. Used for
+     * DOCTOR / PATIENT accounts where {@link SubjectAccessPolicy} returned
+     * {@code hasFullVisibility = false}.
+     *
+     * <p>Callers <b>must</b> guarantee {@code subjectIds} is non-empty — an empty
+     * set must be short-circuited to {@link Page#empty} in the service layer before
+     * this method is invoked, because JPQL does not accept {@code IN ()}.
+     */
+    @Query(value = """
+            SELECT q.id            AS id,
+                   q.subjectId      AS subjectId,
+                   q.visitId        AS visitId,
+                   s.subjectCode    AS subjectCode,
+                   s.alias          AS subjectAlias,
+                   v.visitCode      AS visitCode,
+                   q.targetType     AS targetType,
+                   q.sourceType     AS sourceType,
+                   q.status         AS status,
+                   q.abnormalItems  AS abnormalItems,
+                   q.auditComment   AS auditComment,
+                   u.username       AS auditorName,
+                   q.auditedAt      AS auditedAt,
+                   q.createdAt      AS createdAt,
+                   q.updatedAt      AS updatedAt
+              FROM QcAuditRecord q
+              JOIN Subject  s ON s.id = q.subjectId
+              LEFT JOIN Visit v ON v.id = q.visitId
+              JOIN SysUser  u ON u.id = q.auditorId
+             WHERE q.subjectId IN :subjectIds
+               AND (:#{#subjectCode} IS NULL OR :#{#subjectCode} = ''
+                    OR s.subjectCode LIKE CONCAT('%', :#{#subjectCode}, '%'))
+               AND (:#{#subjectAlias} IS NULL OR :#{#subjectAlias} = ''
+                    OR s.alias LIKE CONCAT('%', :#{#subjectAlias}, '%'))
+               AND (:#{#status} IS NULL OR q.status = :#{#status})
+             ORDER BY q.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(q) FROM QcAuditRecord q
+            JOIN Subject s ON s.id = q.subjectId
+            WHERE q.subjectId IN :subjectIds
+              AND (:#{#subjectCode} IS NULL OR :#{#subjectCode} = ''
+                   OR s.subjectCode LIKE CONCAT('%', :#{#subjectCode}, '%'))
+              AND (:#{#subjectAlias} IS NULL OR :#{#subjectAlias} = ''
+                   OR s.alias LIKE CONCAT('%', :#{#subjectAlias}, '%'))
+              AND (:#{#status} IS NULL OR q.status = :#{#status})
+            """)
+    Page<QcJoinedRow> findJoinedBySubjectIds(@Param("subjectIds") Set<Long> subjectIds,
+                                             @Param("subjectCode") String subjectCode,
+                                             @Param("subjectAlias") String subjectAlias,
+                                             @Param("status") QcAuditRecord.Status status,
+                                             Pageable pageable);
+
+    /**
      * One joined row by primary key. Used after {@link com.adcausalrisk.backend.qc.QcAuditService#submitAudit}
      * to hand the caller back the subject/visit/auditor names it cannot get from the entity alone.
+     *
+     * <p>Row-level visibility is enforced by the caller: {@link QcAuditService#submitAudit}
+     * only allows ADMIN / RESEARCHER (the auditor roles) to reach this point, so no
+     * subjectId filter is needed here.
      */
     @Query("""
             SELECT q.id            AS id,
@@ -142,4 +201,17 @@ public interface QcAuditRecordRepository extends JpaRepository<QcAuditRecord, Lo
              GROUP BY q.status
             """)
     java.util.List<Object[]> groupByStatus();
+
+    /**
+     * Row-level-visibility variant of {@link #groupByStatus} for DOCTOR / PATIENT.
+     * Counts are scoped to QC rows whose subject is in the caller's granted set.
+     */
+    @Query("""
+            SELECT q.status    AS status,
+                   COUNT(q.id) AS count
+              FROM QcAuditRecord q
+             WHERE q.subjectId IN :subjectIds
+             GROUP BY q.status
+            """)
+    java.util.List<Object[]> groupByStatusBySubjectIds(@Param("subjectIds") Set<Long> subjectIds);
 }
