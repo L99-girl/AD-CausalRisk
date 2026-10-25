@@ -85,3 +85,5 @@ RunStore按runId共享正在执行的计算，计算/校验/等待期间不持�
 `test_course_optional_values.py`覆盖冻结Schema允许的64种六信号省略组合、显式null对照、原时间/冲突/回退政策、来源指针、矩阵字段存在性、缺失计划/比较及实际HTTP重放；不改变Schema来排除合法缺失输入。
 
 `test_course_error_binding.py`覆盖原错误组合及状态/码交叉错配、健康404误标缓存缺失、实际POST已缓存后异常错误响应的GET恢复、真正缓存缺失与BLOCKED保持。
+
+`test_course_business_day.py`覆盖上海业务日与宿主日期不同、午夜/闰日/跨年边界、每次字段/行校验固定日期、真实HTTP重放/GET及未来日期零工作流拒绝。课程请求/CSV与Java当前业务日统一，详见[业务日期边界](Integration_Contract.md#业务日期边界)；不转换历史观测日期或认证历史可获得性。
