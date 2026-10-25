@@ -51,7 +51,7 @@ public record VisitCreateRequest(
         @NotNull
         @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式须为 yyyy-MM-dd")
         String visitDate,
-        @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal mmse,
-        @DecimalMin("0") @DecimalMax("30") @Digits(integer = 2, fraction = 61) BigDecimal moca,
-        @DecimalMin("0") @DecimalMax("18") @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {
+        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal mmse,
+        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal moca,
+        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {
 }

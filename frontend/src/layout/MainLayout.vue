@@ -136,20 +136,23 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { logout } from '../api/auth.js'
+import { useUserStore } from '../stores/user.js'
 
 const DARK_ATTR = 'arco-theme'
 const STORAGE_KEY = 'ad-causalrisk-theme'
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
 
 const collapsed = ref(false)
 const isFullscreen = ref(false)
 const isDark = ref(false)
 
-const user = computed(() => {
-  try { return JSON.parse(localStorage.getItem('user')) } catch { return null }
-})
+const user = computed(() => ({
+  username: userStore.username,
+  roles: userStore.roles
+}))
 
 const menuMap = {
   '/dashboard':  ['首页'],

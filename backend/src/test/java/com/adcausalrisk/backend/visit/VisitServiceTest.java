@@ -11,6 +11,7 @@ import java.util.List;
 
 import com.adcausalrisk.backend.common.BusinessException;
 import com.adcausalrisk.backend.common.ErrorCode;
+import com.adcausalrisk.backend.qc.QcAuditService;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 import com.adcausalrisk.backend.subject.SubjectPermissionRepository;
@@ -62,7 +63,8 @@ class VisitServiceTest {
                 .willThrow(new DataIntegrityViolationException("uq_visit_subject_code"));
 
         VisitService service = new VisitService(
-                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
+                visitRepository, subjectRepository, accessPolicy,
+                mock(EntityManager.class), mock(QcAuditService.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, REQUEST, ADMIN))
                 .isInstanceOf(BusinessException.class)
@@ -90,7 +92,8 @@ class VisitServiceTest {
                 VISIT_CODE, "2025-02-30", new BigDecimal("28.0"), null, null);
 
         VisitService service = new VisitService(
-                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
+                visitRepository, subjectRepository, accessPolicy,
+                mock(EntityManager.class), mock(QcAuditService.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, impossible, ADMIN))
                 .isInstanceOf(BusinessException.class)
