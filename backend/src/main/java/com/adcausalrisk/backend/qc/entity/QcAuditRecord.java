@@ -175,12 +175,15 @@ public class QcAuditRecord {
     /**
      * Transition from PENDING to APPROVED or REJECTED.
      * Writes {@code status}, {@code abnormalItems}, {@code auditComment},
-     * {@code auditedAt} and bumps {@code updatedAt} atomically — callers cannot
-     * leave a row in a half-updated state.
+     * {@code auditedAt}, {@code auditorId} and bumps {@code updatedAt} atomically —
+     * callers cannot leave a row in a half-updated state.
+     *
+     * @param auditorId the person making the decision (overwrites the PENDING creator).
      */
     public void submitDecision(Status newStatus,
                                String abnormalItems,
                                String auditComment,
+                               Long auditorId,
                                Instant auditedAt) {
         if (newStatus == Status.PENDING) {
             throw new IllegalArgumentException("submitDecision requires APPROVED or REJECTED, not PENDING");
@@ -192,6 +195,7 @@ public class QcAuditRecord {
         this.status = newStatus;
         this.abnormalItems = abnormalItems;
         this.auditComment = auditComment;
+        this.auditorId = auditorId;
         this.auditedAt = auditedAt;
         this.updatedAt = auditedAt;
     }

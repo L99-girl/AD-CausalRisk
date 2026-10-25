@@ -12,6 +12,8 @@ request.interceptors.request.use(config => {
   if (USE_MOCK) {
     const token = localStorage.getItem('token')
     if (token) config.headers.Authorization = `Bearer ${token}`
+  } else {
+    config.headers['X-Allow-OOR'] = 'true'
   }
   return config
 })

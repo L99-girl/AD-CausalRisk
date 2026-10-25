@@ -2,6 +2,8 @@ package com.adcausalrisk.backend.visit.dto;
 
 import java.math.BigDecimal;
 
+import com.adcausalrisk.backend.validation.ContractGroup;
+
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -30,9 +32,12 @@ import jakarta.validation.constraints.Size;
  *       400 {@code VALIDATION_ERROR}, and a missing value fails {@code @NotNull}. The service
  *       then parses the text, so a shape-valid but impossible date ({@code 2025-02-30}) is also
  *       a 400 rather than a 500.</li>
- *   <li>{@code @DecimalMin}/{@code @DecimalMax} mirror the {@code ck_visit_*} CHECK
- *       constraints. {@code @Min}/{@code @Max} are not used because they do not support
- *       {@link BigDecimal}.</li>
+ *   <li>{@code @DecimalMin} is always enforced (default validation group {@code Default}).
+ *       {@code @DecimalMax} is gated behind {@link ContractGroup} so callers that explicitly
+ *       opt in to QC-tolerant mode (via {@code X-Allow-OOR: true} header) can submit values
+ *       beyond the clinical range — they pass validation here and the QC layer catches them
+ *       instead of a 400. Python clients that do not send the header keep the contract's
+ *       hard ceiling and receive 400 on out-of-range scores.</li>
  *   <li>Precision is not a business rule here. The contract declares a plain {@code number} with
  *       only a min/max range, so a value such as {@code 27.55} must be accepted and stored
  *       exactly as submitted: migration {@code V4} added {@code raw_*} text columns that keep the
@@ -51,7 +56,10 @@ public record VisitCreateRequest(
         @NotNull
         @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式须为 yyyy-MM-dd")
         String visitDate,
-        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal mmse,
-        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal moca,
-        @DecimalMin("0") @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {
+        @DecimalMin("0") @DecimalMax(value = "30", groups = ContractGroup.class)
+        @Digits(integer = 2, fraction = 61) BigDecimal mmse,
+        @DecimalMin("0") @DecimalMax(value = "30", groups = ContractGroup.class)
+        @Digits(integer = 2, fraction = 61) BigDecimal moca,
+        @DecimalMin("0") @DecimalMax(value = "18", groups = ContractGroup.class)
+        @Digits(integer = 2, fraction = 61) BigDecimal cdrSb) {
 }

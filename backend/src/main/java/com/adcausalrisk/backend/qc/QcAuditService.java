@@ -1,5 +1,6 @@
 package com.adcausalrisk.backend.qc;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -124,25 +125,46 @@ public class QcAuditService {
      *
      * <p>Idempotent: if a PENDING row already exists for this visit, we skip insertion.
      * The caller does not care whether a row was created.
+     *
+     * <p><b>Rollback isolation — noRollbackFor = Exception.class.</b> QC must never roll back a
+     * visit that was already validated and inserted. The obvious approaches both fail here:
+     * <ul>
+     *   <li>{@code REQUIRED} (plain {@code @Transactional}) — when QC throws inside the shared
+     *       transaction JPA marks it {@code rollback-only}; VisitService swallows the exception
+     *       but the outer commit still aborts.</li>
+     *   <li>{@code REQUIRES_NEW} — opens a fresh physical connection that cannot see the Subject
+     *       row the outer transaction inserted-but-not-committed, so FK constraints fail.</li>
+     *   <li>{@code NESTED} — Hibernate 6's {@code HibernateJpaDialect} does not advertise savepoint
+     *       support, so Spring throws {@code NestedTransactionNotSupportedException}.</li>
+     * </ul>
+     * We share the caller's transaction (default {@code REQUIRED}) but instruct Spring not to
+     * roll back on any exception. The exception still propagates out and VisitService catches it;
+     * because the transaction was never marked {@code rollback-only}, the outer commit proceeds
+     * normally. Any SQL QC did manage to execute before the failure stays — that is acceptable
+     * because QC writes are idempotent and can be retried later via the manual endpoint.
      */
-    @Transactional
+    @Transactional(noRollbackFor = Exception.class)
     public void generateQcRecord(Visit visit, Long operatorId, Long qualityCheckId) {
+        BigDecimal mmse = originalScoreOf(visit.getRawMmse(), visit.getMmse());
+        BigDecimal moca = originalScoreOf(visit.getRawMoca(), visit.getMoca());
+        BigDecimal cdrSb = originalScoreOf(visit.getRawCdrSb(), visit.getCdrSb());
+
         log.info("QC check triggered for visit id={} visitCode={} subjectId={} mmse={} moca={} cdrSb={} visitDate={}",
                 visit.getId(), visit.getVisitCode(), visit.getSubjectId(),
-                visit.getMmse(), visit.getMoca(), visit.getCdrSb(), visit.getVisitDate());
+                mmse, moca, cdrSb, visit.getVisitDate());
 
         List<String> anomalies = new ArrayList<>();
 
-        if (visit.getMmse() != null && (visit.getMmse().doubleValue() < 0 || visit.getMmse().doubleValue() > MMSE_MAX)) {
-            anomalies.add("MMSE 得分 " + visit.getMmse() + " 超出有效范围 0-" + MMSE_MAX);
+        if (mmse != null && (mmse.compareTo(BigDecimal.ZERO) < 0 || mmse.compareTo(BigDecimal.valueOf(MMSE_MAX)) > 0)) {
+            anomalies.add("MMSE 得分 " + mmse + " 超出有效范围 0-" + MMSE_MAX);
         }
-        if (visit.getMoca() != null && (visit.getMoca().doubleValue() < 0 || visit.getMoca().doubleValue() > MOCA_MAX)) {
-            anomalies.add("MoCA 得分 " + visit.getMoca() + " 超出有效范围 0-" + MOCA_MAX);
+        if (moca != null && (moca.compareTo(BigDecimal.ZERO) < 0 || moca.compareTo(BigDecimal.valueOf(MOCA_MAX)) > 0)) {
+            anomalies.add("MoCA 得分 " + moca + " 超出有效范围 0-" + MOCA_MAX);
         }
-        if (visit.getCdrSb() != null && (visit.getCdrSb().doubleValue() < 0 || visit.getCdrSb().doubleValue() > CDR_SB_MAX)) {
-            anomalies.add("CDR-SB 得分 " + visit.getCdrSb() + " 超出有效范围 0-" + CDR_SB_MAX);
+        if (cdrSb != null && (cdrSb.compareTo(BigDecimal.ZERO) < 0 || cdrSb.compareTo(BigDecimal.valueOf(CDR_SB_MAX)) > 0)) {
+            anomalies.add("CDR-SB 得分 " + cdrSb + " 超出有效范围 0-" + CDR_SB_MAX);
         }
-        if (visit.getMmse() == null && visit.getMoca() == null) {
+        if (mmse == null && moca == null) {
             anomalies.add("MMSE 和 MoCA 得分均缺失，至少应记录一项认知评估");
         }
         if (visit.getVisitDate() != null && visit.getVisitDate().isAfter(LocalDate.now())) {
@@ -276,6 +298,7 @@ public class QcAuditService {
                 Status.valueOf(request.status()),
                 request.abnormalItems(),
                 request.auditComment(),
+                principal.userId(),
                 now);
 
         qcAuditRecordRepository.save(record);
@@ -360,10 +383,32 @@ public class QcAuditService {
         try {
             return objectMapper.writeValueAsString(anomalies);
         } catch (JsonProcessingException e) {
-            // Should never happen with simple strings; log and fall back to comma-joined text
-            // so at least the anomaly survives.
             log.warn("Failed to serialize anomalies to JSON, falling back to comma-joined text", e);
             return String.join(", ", anomalies);
+        }
+    }
+
+    /**
+     * Resolves the authoritative score for QC range checks.
+     *
+     * <p>{@code rawText} (from {@code raw_mmse}/{@code raw_moca}/{@code raw_cdr_sb}, added by
+     * migration {@code V4}) is the exact submitted value — a raw {@code BigDecimal.toString()}
+     * that preserves full precision. QC must use it, never the rounded DECIMAL column, otherwise
+     * {@code 30.004} silently becomes {@code 30.00} and the out-of-range rule never fires.
+     *
+     * <p>When {@code rawText} is {@code null} (rows written before V4, backfilled from the
+     * already-rounded DECIMAL columns), we fall back to {@code derived} so old rows still get
+     * checked rather than treated as missing.
+     */
+    private static BigDecimal originalScoreOf(String rawText, BigDecimal derived) {
+        if (rawText == null) {
+            return derived;
+        }
+        try {
+            return new BigDecimal(rawText.trim());
+        } catch (NumberFormatException parseFailure) {
+            log.warn("Could not parse raw score text '{}', falling back to derived column", rawText);
+            return derived;
         }
     }
 }

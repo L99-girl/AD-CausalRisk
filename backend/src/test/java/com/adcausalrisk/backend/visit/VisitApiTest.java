@@ -12,6 +12,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import com.adcausalrisk.backend.contract.ContractSchemas;
+import com.adcausalrisk.backend.qc.QcAuditRecordRepository;
+import com.adcausalrisk.backend.qc.entity.QcAuditRecord;
 import com.adcausalrisk.backend.subject.SubjectPermissionRepository;
 import com.adcausalrisk.backend.subject.SubjectRepository;
 import com.adcausalrisk.backend.subject.entity.Subject;
@@ -86,6 +88,9 @@ class VisitApiTest {
 
     @Autowired
     private VisitRepository visitRepository;
+
+    @Autowired
+    private QcAuditRecordRepository qcAuditRecordRepository;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -416,6 +421,7 @@ class VisitApiTest {
         Subject subject = seedSubject("DEMO-V-MMSE-HIGH");
 
         JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 30.1, null, null)
+                        .header("X-Allow-OOR", "true")
                         .session(admin))
                 .andExpect(status().isOk())
                 .andReturn());
@@ -442,11 +448,61 @@ class VisitApiTest {
     }
 
     @Test
+    void mmseNinetyNineWithoutHeaderIsRejectedAs400AndNoQcRecordCreated() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-MMSE-99-NOQC");
+
+        JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                        .session(admin))
+                .andExpect(status().isBadRequest())
+                .andReturn());
+
+        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(body.get("message").asText()).contains("mmse");
+        assertThat(body.get("message").asText()).contains("30");
+
+        assertThat(visitRepository.findAll().stream()
+                .noneMatch(v -> v.getSubjectId().equals(subject.getId())))
+                .as("无 header 时 DTO 校验拒绝 → Visit 根本没保存 → 无 QC 可以生成")
+                .isTrue();
+
+        assertThat(qcAuditRecordRepository.findAll().stream()
+                .noneMatch(r -> r.getSubjectId().equals(subject.getId())))
+                .isTrue();
+    }
+
+    @Test
+    void mmseNinetyNineWithAllowOorHeaderSavesVisitAndCreatesQcRecord() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-MMSE-99-QC");
+
+        JsonNode created = bodyOf(mockMvc.perform(
+                        createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                                .header("X-Allow-OOR", "true")
+                                .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        Long visitId = created.get("data").get("id").asLong();
+
+        Visit entity = visitRepository.findById(visitId).orElseThrow();
+        assertThat(entity.getRawMmse()).isEqualTo("99.0");
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("99.00"));
+
+        QcAuditRecord qc = qcAuditRecordRepository.findTopByVisitIdOrderByCreatedAtDesc(visitId)
+                .orElseThrow(() -> new AssertionError("expected a PENDING QC record for MMSE=99"));
+        assertThat(qc.getStatus()).isEqualTo(QcAuditRecord.Status.PENDING);
+        assertThat(qc.getAbnormalItems()).contains("99.0").contains("MMSE");
+        assertThat(qc.getAuditorId()).isEqualTo(userId("admin"));
+    }
+
+    @Test
     void cdrSbAboveClinicalMaximumIsAcceptedForQcToCatch() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-CDR-HIGH");
 
         JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", null, null, 18.1)
+                        .header("X-Allow-OOR", "true")
                         .session(admin))
                 .andExpect(status().isOk())
                 .andReturn());
@@ -457,6 +513,47 @@ class VisitApiTest {
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
         assertThat(fromDetail.get("cdrSb").decimalValue())
                 .isEqualByComparingTo(new BigDecimal("18.1"));
+    }
+
+    /**
+     * MMSE=30.004 is above 30, but DECIMAL(5,2) rounds it to 30.00 at insert time.
+     * QC rules MUST fire on the original submitted value (stored in {@code raw_mmse}),
+     * not the rounded DECIMAL column, otherwise out-of-range values with extra precision
+     * slip through undetected.
+     *
+     * <p>This is the regression test for the "QC 漏检" bug: before the fix the QC engine
+     * read {@code visit.getMmse()} (the DECIMAL column) and saw 30.00 -> silent pass.
+     * After the fix it reads {@code raw_mmse} -> sees 30.004 -> anomaly fires.
+     */
+    @Test
+    void highPrecisionOutOfRangeScoreIsCaughtByQcBeforeDecimalRoundingHidesIt() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-ROUNDING-HIDE");
+
+        JsonNode created = bodyOf(mockMvc.perform(
+                        createVisit(subject.getId(), "BL", "2025-01-01", 30.004, null, null)
+                                .header("X-Allow-OOR", "true")
+                                .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        Long visitId = created.get("data").get("id").asLong();
+
+        Visit entity = visitRepository.findById(visitId).orElseThrow();
+        assertThat(entity.getRawMmse())
+                .as("raw text must preserve the full precision")
+                .isEqualTo("30.004");
+        assertThat(entity.getMmse())
+                .as("DECIMAL(5,2) must round to 30.00")
+                .isEqualByComparingTo(new BigDecimal("30.00"));
+
+        QcAuditRecord qc = qcAuditRecordRepository.findTopByVisitIdOrderByCreatedAtDesc(visitId)
+                .orElseThrow(() -> new AssertionError("expected a QC record for visit " + visitId));
+        assertThat(qc.getStatus()).isEqualTo(QcAuditRecord.Status.PENDING);
+        assertThat(qc.getAbnormalItems())
+                .as("anomalies must reference the original 30.004, not the rounded 30.00")
+                .contains("30.004")
+                .contains("MMSE");
     }
 
     @Test

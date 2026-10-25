@@ -244,6 +244,70 @@ class QcAuditApiTest {
         assertThat(body.get("errorCode").asText()).isEqualTo("UNAUTHENTICATED");
     }
 
+    @Test
+    void doctorListScopedToGrantedSubjectsOnly() throws Exception {
+        MockHttpSession admin = login("admin");
+        MockHttpSession doctor = login("doctor");
+        Long doctorId = userId("doctor");
+        Long adminId = userId("admin");
+        Instant now = Instant.now();
+
+        Subject subjectA = seedSubject("QC-DOCTOR-A");
+        Subject subjectB = seedSubject("QC-DOCTOR-B");
+
+        jdbc.update(
+                "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                        + "auditor_id, created_at, updated_at) "
+                        + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'PENDING', ?, ?, ?)",
+                subjectA.getId(), adminId, now, now);
+        jdbc.update(
+                "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                        + "auditor_id, created_at, updated_at) "
+                        + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'PENDING', ?, ?, ?)",
+                subjectB.getId(), adminId, now, now);
+
+        jdbc.update(
+                "INSERT INTO subject_permission (subject_id, user_id, permission_type) "
+                        + "VALUES (?, ?, 'VIEW')",
+                subjectA.getId(), doctorId);
+
+        JsonNode doctorList = bodyOf(mockMvc.perform(get("/api/qc/list").session(doctor))
+                .andExpect(status().isOk())
+                .andReturn()).get("data");
+
+        assertThat(doctorList.get("items").size()).isEqualTo(1);
+        assertThat(doctorList.get("items").get(0).get("subjectCode").asText())
+                .isEqualTo("QC-DOCTOR-A");
+        assertThat(doctorList.get("total").asLong()).isEqualTo(1);
+
+        JsonNode adminList = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
+                .andExpect(status().isOk())
+                .andReturn()).get("data");
+        assertThat(adminList.get("items").size()).isEqualTo(2);
+        assertThat(adminList.get("total").asLong()).isEqualTo(2);
+    }
+
+    @Test
+    void doctorListReturnsEmptyWhenNoGrantsAtAll() throws Exception {
+        MockHttpSession doctor = login("doctor");
+        Long adminId = userId("admin");
+        Instant now = Instant.now();
+
+        Subject subject = seedSubject("QC-DOCTOR-NOGRANT");
+        jdbc.update(
+                "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                        + "auditor_id, created_at, updated_at) "
+                        + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'PENDING', ?, ?, ?)",
+                subject.getId(), adminId, now, now);
+
+        JsonNode body = bodyOf(mockMvc.perform(get("/api/qc/list").session(doctor))
+                .andExpect(status().isOk())
+                .andReturn()).get("data");
+
+        assertThat(body.get("items").size()).isZero();
+        assertThat(body.get("total").asLong()).isZero();
+    }
+
     // ===================================================================
     // 3. POST /api/qc/{id}/audit
     // ===================================================================
@@ -322,9 +386,13 @@ class QcAuditApiTest {
 
         assertThat(body.get("data").get("status").asText()).isEqualTo("REJECTED");
 
-        String status = jdbc.queryForObject(
-                "SELECT status FROM qc_audit_record WHERE id = ?", String.class, rowId);
-        assertThat(status).isEqualTo("REJECTED");
+        var row = jdbc.queryForMap(
+                "SELECT status, auditor_id, audited_at FROM qc_audit_record WHERE id = ?", rowId);
+        assertThat(row.get("STATUS")).isEqualTo("REJECTED");
+        assertThat(row.get("AUDITED_AT")).isNotNull();
+        assertThat(row.get("AUDITOR_ID"))
+                .as("审核人必须是提交决策的 researcher，而非 PENDING 行创建时的 admin")
+                .isEqualTo(userId("researcher"));
     }
 
     @Test
