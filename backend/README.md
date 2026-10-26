@@ -39,6 +39,22 @@
 
 访视**没有独立的查询接口**：契约在该路径上只声明了 `POST`，因此访视通过档案详情的 `visits` 字段读取（`GET /api/subjects/{subjectId}`）。新增一个 `GET` 属于共同契约变更，需先走契约 PR。
 
+### 第四组：质控（qc）
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `getApiQcList` | `GET /api/qc/list` | 质控审核队列分页列表 |
+| `postApiQcAuditsubmit` | `POST /api/qc/audit/{id}/submit` | 提交审核决策（APPROVED / REJECTED） |
+| `getApiQcStats` | `GET /api/qc/stats` | 按状态分组的质控计数（仪表盘） |
+
+**QC 敏感字段脱敏规则**（`QcAuditService.getQcList`）——与访视原始分数是**两套独立的权限判断**：
+- QC 列表中的 `abnormalItems`（异常详情 JSON）和 `auditComment`（审核备注）属于**审核内部字段**，只有 **AUDITOR_ROLES（ADMIN / RESEARCHER）且不带 PATIENT 角色**才能看到原值，其余角色一律返回 `null`。
+- **PATIENT 一票否决**：账号只要带 PATIENT 角色，即使同时拥有 ADMIN 或 RESEARCHER，敏感字段依然被强制脱敏为 `null`——与 `canReadRawScores` 的 PATIENT 优先规则一致。
+- **DOCTOR 哪怕有 VIEW / MANAGE 授权**，也永远看不到 `abnormalItems` 和 `auditComment`。DOCTOR 可以看到 QC 队列的状态（status = PENDING / APPROVED / REJECTED）、档案 code/alias、访视 code 等**非敏感元数据**，用于了解自己患者的质控进度，但无法查看具体异常详情或审核员的内部备注。这是 QC 内部字段与临床分数（走 `canReadRawScores`）的关键区别——后者在 DOCTOR 持有 VIEW 时是放行的。
+- 提交审核（`POST /api/qc/audit/{id}/submit`）仅限 ADMIN / RESEARCHER，DOCTOR / PATIENT 调用直接返回 403 ACCESS_DENIED。
+- **并发安全**：审核决策通过 `QcAuditRecordRepository.updateDecision` 原子条件更新——`WHERE q.id = :id AND q.status = 'PENDING'`。两个审核员同时审核同一 PENDING 行时，数据库行锁保证恰好一个返回 rows=1（成功 transition），另一个返回 rows=0（已被他人处理，Service 层抛 400 VALIDATION_ERROR"该记录已被其他审核员处理"）。`@Modifying(clearAutomatically = true)` 保证一级缓存被清理，后续查询不会读到 stale entity。
+
+**访视超限值脱敏（Python 契约兼容）**：`VisitMapper.maskOutOfRange` 在 HTTP 出口（POST 响应 + GET subjectDetail）将 `mmse > 30`、`moca > 30`、`cdrSb > 18` 的值 mask 为 `null`，但 Entity 仍保留原始值供 QC 规则检测（QC 引擎读的是 `raw_mmse`/`raw_moca`/`raw_cdr_sb` VARCHAR 列，而非 DECIMAL 展示列）。需要写入超限值时必须带 `X-Allow-OOR: true` 头，且 `SubjectAccessPolicy.canReadRawScores` 返回 true 的角色才能在响应中看到未脱敏值——实际上目前所有角色的 HTTP 出口统一脱敏，超限值永远对外返回 `null`。
+
 权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建档案仅限 ADMIN / RESEARCHER；创建访视沿用**同一条** `SubjectAccessPolicy.canCreate` 规则，因此单档案的 `MANAGE` 授权并不足以创建访视。
 
 **患者字段过滤与原始分数**：判定集中在 `SubjectAccessPolicy.canReadRawScores(principal, subjectId)`，按角色且**按档案**决定：ADMIN / RESEARCHER 直接可读；DOCTOR 必须在该档案上持有 `VIEW` 或 `MANAGE`；PATIENT 与任何未知角色一律不可读。**PATIENT 优先级最高**：账号只要带 PATIENT 角色，即使同时拥有 RESEARCHER 或 ADMIN 也一律不可读。因此"只被授予 `SUMMARY_READ`"的医生同样看不到原始分数——这是防止 `SUMMARY_READ` 被升级成整份读取的关键。不可读时详情响应中的 `visits` 为空数组。
@@ -258,7 +274,7 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作中的 **12 个未实现**：特征、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
+- 契约 22 个操作，目前已实现 13 个（认证 3 + 档案 3 + 访视 1 + 质控 3 + 导入 3）。未实现：特征读取/写入、评估任务、`AgentClient`、结果查询、人工复核（独立端点）、随访、报告、审计。
 - **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
 - **访视分数的精度（双列语义）**：`raw_mmse`/`raw_moca`/`raw_cdr_sb` 是**权威**值，保存提交数值的**规范化文本**（`BigDecimal.toString()`；`07.50`→`7.50`、`1e1`→`1E+1`、`+1`→`1`、`-0.0`→`0.0`，**精度不丢、字面量不保留**），接口返回它；`mmse`/`moca`/`cdr_sb` 是**派生**列，等于 `round(raw, 2)`，仅供展示、列表与 SQL 统计，不参与评分。因此 `27.555` 会被接口原样返回，而 DECIMAL 列是 `27.56`。两者的派生关系由实体构造函数一次完成，`VisitApiTest` 还有一条**全表不变量**断言 `mmse == round(raw_mmse, 2)`。**V4 的回填不可逆**：V1–V3 期间写入的行早已被舍入，回填只能把"库里仅存的舍入值"复制到 `raw_*`，无法还原原始输入。`raw_*` 为 NULL 的行（手写 SQL、或回填遗漏）读取时退回 DECIMAL 列，不会返回 `null`。入口用 `@Digits(integer = 2, fraction = 61)` 拦掉超出 `VARCHAR(64)` 的精度，避免数据库报错或（MySQL 非严格模式下）静默截断。
 - **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。

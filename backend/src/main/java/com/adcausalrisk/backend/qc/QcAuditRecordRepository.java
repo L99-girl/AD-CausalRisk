@@ -227,7 +227,8 @@ public interface QcAuditRecordRepository extends JpaRepository<QcAuditRecord, Lo
      */
     @Modifying(clearAutomatically = true)
     @Query("UPDATE QcAuditRecord q SET q.status = :status, q.abnormalItems = :abnormalItems, "
-            + "q.auditComment = :auditComment, q.auditorId = :auditorId, q.auditedAt = :now "
+            + "q.auditComment = :auditComment, q.auditorId = :auditorId, q.auditedAt = :now, "
+            + "q.updatedAt = :now "
             + "WHERE q.id = :id AND q.status = 'PENDING'")
     int updateDecision(@Param("id") Long id,
                        @Param("status") QcAuditRecord.Status status,
