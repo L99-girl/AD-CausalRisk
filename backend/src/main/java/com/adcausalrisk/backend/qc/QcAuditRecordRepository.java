@@ -6,6 +6,7 @@ import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -214,4 +215,24 @@ public interface QcAuditRecordRepository extends JpaRepository<QcAuditRecord, Lo
              GROUP BY q.status
             """)
     java.util.List<Object[]> groupByStatusBySubjectIds(@Param("subjectIds") Set<Long> subjectIds);
+
+    /**
+     * Atomic conditional update for the audit decision. The WHERE clause pins the row to
+     * {@code status = 'PENDING'}, so the update silently returns 0 rows when a competing
+     * auditor has already transitioned it to APPROVED or REJECTED in the meantime.
+     *
+     * <p>Spring's {@code @Modifying} + {@code clearAutomatically} ensures the first-level
+     * cache is flushed and evicted after the update, so a subsequent {@code findById} sees
+     * the fresh committed state rather than the stale entity the caller loaded before.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE QcAuditRecord q SET q.status = :status, q.abnormalItems = :abnormalItems, "
+            + "q.auditComment = :auditComment, q.auditorId = :auditorId, q.auditedAt = :now "
+            + "WHERE q.id = :id AND q.status = 'PENDING'")
+    int updateDecision(@Param("id") Long id,
+                       @Param("status") QcAuditRecord.Status status,
+                       @Param("abnormalItems") String abnormalItems,
+                       @Param("auditComment") String auditComment,
+                       @Param("auditorId") Long auditorId,
+                       @Param("now") java.time.Instant now);
 }

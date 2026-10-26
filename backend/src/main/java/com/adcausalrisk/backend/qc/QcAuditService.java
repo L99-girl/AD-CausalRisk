@@ -322,31 +322,30 @@ public class QcAuditService {
                     "无质控审核权限，仅 ADMIN / RESEARCHER 可以提交审核结果");
         }
 
-        QcAuditRecord record = qcAuditRecordRepository.findById(id).orElseThrow(() ->
-                new BusinessException(ErrorCode.VALIDATION_ERROR, "质控记录不存在: " + id));
-
-        if (record.getStatus() != Status.PENDING) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "质控记录 " + id + " 已完成审核（" + record.getStatus() + "），不可重复提交");
+        if (!qcAuditRecordRepository.existsById(id)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "质控记录不存在: " + id);
         }
 
-        Instant now = Instant.now();
-
-        record.submitDecision(
-                Status.valueOf(request.status()),
+        int rows = qcAuditRecordRepository.updateDecision(
+                id,
+                QcAuditRecord.Status.valueOf(request.status()),
                 request.abnormalItems(),
                 request.auditComment(),
                 principal.userId(),
-                now);
+                Instant.now());
 
-        qcAuditRecordRepository.save(record);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "质控记录 " + id + " 已被其他审核员处理，不可重复提交");
+        }
+
         log.info("QC audit id={} submitted as {} by userId={} role={}",
                 id, request.status(), principal.userId(), principal.roleCodes());
 
         return qcAuditRecordRepository.findJoinedById(id)
                 .map(this::toView)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Joined row disappeared after save for id=" + id));
+                        "Joined row disappeared after update for id=" + id));
     }
 
     // ===================================================================

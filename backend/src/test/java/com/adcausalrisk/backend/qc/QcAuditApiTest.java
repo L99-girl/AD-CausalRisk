@@ -9,6 +9,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.adcausalrisk.backend.qc.entity.QcAuditRecord;
+import com.adcausalrisk.backend.qc.QcAuditRecordRepository;
 
 import com.adcausalrisk.backend.subject.SubjectRepository;
 import com.adcausalrisk.backend.subject.entity.Subject;
@@ -26,7 +33,10 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +57,12 @@ class QcAuditApiTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private QcAuditRecordRepository qcAuditRecordRepository;
+
+    @Autowired
+    private PlatformTransactionManager txManager;
 
     // ===================================================================
     // 1. GET /api/qc/stats
@@ -591,11 +607,114 @@ class QcAuditApiTest {
                 .andReturn());
 
         assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("已完成审核");
+        assertThat(body.get("message").asText()).contains("已被其他审核员处理");
 
         String status = jdbc.queryForObject(
                 "SELECT status FROM qc_audit_record WHERE id = ?", String.class, rowId);
         assertThat(status).isEqualTo("APPROVED");
+    }
+
+    /**
+     * P1 concurrent-submit regression — two independent physical transactions race on the
+     * same PENDING QC row.
+     *
+     * <p>Uses {@link TransactionTemplate} with {@link TransactionDefinition#PROPAGATION_REQUIRES_NEW}
+     * so each block runs on its own JDBC connection — no outer-test transaction contamination
+     * and no MockMvc request-thread quirks. Both callers invoke the same atomic conditional
+     * update: {@code UPDATE ... WHERE id = ? AND status = 'PENDING'}. Only one can see
+     * rows = 1; the other must see rows = 0 and therefore throw {@code VALIDATION_ERROR}.
+     *
+     * <p>The final {@code status} column must be APPROVED (the winner's value), proving
+     * the loser's update was silently rejected by the WHERE clause.
+     */
+    @Test
+    void concurrentAuditOnlyOneWinsOtherGetsValidationError() throws Exception {
+        PlatformTransactionManager tm = txManager;
+        TransactionTemplate seedTx = new TransactionTemplate(tm);
+        seedTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Long rowId = seedTx.execute(status -> seedPendingAuditRow());
+        assertThat(rowId).as("seed must commit before competing transactions").isNotNull();
+
+        Long subjectId = jdbc.queryForObject(
+                "SELECT subject_id FROM qc_audit_record WHERE id = ?", Long.class, rowId);
+        try {
+            Long auditorId = userId("admin");
+            Instant now = Instant.now();
+
+            TransactionTemplate txA = new TransactionTemplate(tm);
+            txA.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            TransactionTemplate txB = new TransactionTemplate(tm);
+            txB.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch go = new CountDownLatch(1);
+            AtomicReference<Integer> rowsA = new AtomicReference<>();
+            AtomicReference<Integer> rowsB = new AtomicReference<>();
+            AtomicReference<Throwable> exA = new AtomicReference<>();
+            AtomicReference<Throwable> exB = new AtomicReference<>();
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                pool.submit(() -> {
+                    try {
+                        ready.countDown();
+                        go.await();
+                        rowsA.set(txA.execute(status -> qcAuditRecordRepository.updateDecision(
+                                rowId, QcAuditRecord.Status.APPROVED,
+                                "[\"MMSE 99\"]", "A wins", auditorId, now)));
+                    } catch (Throwable t) {
+                        exA.set(t);
+                    }
+                });
+                pool.submit(() -> {
+                    try {
+                        ready.countDown();
+                        go.await();
+                        rowsB.set(txB.execute(status -> qcAuditRecordRepository.updateDecision(
+                                rowId, QcAuditRecord.Status.REJECTED,
+                                "[\"CDR-SB 20\"]", "B races", auditorId, now)));
+                    } catch (Throwable t) {
+                        exB.set(t);
+                    }
+                });
+                ready.await();
+                go.countDown();
+                pool.shutdown();
+                pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertThat(exA.get()).as("Thread A crashed").isNull();
+            assertThat(exB.get()).as("Thread B crashed").isNull();
+
+            int total = rowsA.get() + rowsB.get();
+            assertThat(total).as("exactly one writer should see rows = 1").isEqualTo(1);
+
+            String finalStatus = jdbc.queryForObject(
+                    "SELECT status FROM qc_audit_record WHERE id = ?", String.class, rowId);
+
+            if (rowsA.get() == 1) {
+                assertThat(finalStatus).isEqualTo("APPROVED");
+                String comment = jdbc.queryForObject(
+                        "SELECT audit_comment FROM qc_audit_record WHERE id = ?", String.class, rowId);
+                assertThat(comment).isEqualTo("A wins");
+            } else {
+                assertThat(finalStatus).isEqualTo("REJECTED");
+                String comment = jdbc.queryForObject(
+                        "SELECT audit_comment FROM qc_audit_record WHERE id = ?", String.class, rowId);
+                assertThat(comment).isEqualTo("B races");
+            }
+        } finally {
+            TransactionTemplate cleanup = new TransactionTemplate(tm);
+            cleanup.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            cleanup.execute(status -> {
+                jdbc.update("DELETE FROM qc_audit_record WHERE id = ?", rowId);
+                jdbc.update("DELETE FROM subject WHERE id = ?", subjectId);
+                return null;
+            });
+        }
     }
 
     @Test
