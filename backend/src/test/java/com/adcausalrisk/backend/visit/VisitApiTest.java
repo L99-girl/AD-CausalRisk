@@ -434,11 +434,11 @@ class VisitApiTest {
                 .andReturn());
 
         assertThat(body.get("data").get("mmse").isNull())
-                .as("P1 Python contract mask: MMSE=30.1 超限 → 响应体 mask 为 null");
+                .as("P1 mask: POST 响应 mmse 必须为 null");
 
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
         assertThat(fromDetail.get("mmse").isNull())
-                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值");
+                .as("P1 mask: GET subjectDetail.visits[].mmse 必须为 null");
 
         Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
         assertThat(entity.getRawMmse()).isEqualTo("30.1");
