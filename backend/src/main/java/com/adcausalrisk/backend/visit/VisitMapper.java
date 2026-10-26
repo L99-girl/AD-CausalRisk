@@ -14,6 +14,11 @@ import com.adcausalrisk.backend.visit.entity.Visit;
  */
 public final class VisitMapper {
 
+    /** Clinical validity ceilings shared with the QC engine and CSV importer. */
+    private static final BigDecimal MMSE_CEIL = new BigDecimal("30");
+    private static final BigDecimal MOCA_CEIL = new BigDecimal("30");
+    private static final BigDecimal CDR_SB_CEIL = new BigDecimal("18");
+
     private VisitMapper() {
         // utility class - no instances
     }
@@ -50,6 +55,16 @@ public final class VisitMapper {
      * derived DECIMAL column. Rows written before migration {@code V4} have no raw value and fall
      * back to that derived column rather than reporting {@code null}. A {@code NULL} score stays
      * JSON null; it is never reported as 0.
+     *
+     * <h3>P1 Python contract mask</h3>
+     * Any score that exceeds the clinical validity ceiling (MMSE &gt; 30, MoCA &gt; 30,
+     * CDR-SB &gt; 18) is masked to {@code null} before the DTO is returned. This covers
+     * both {@code POST /api/subjects/{id}/visits} responses and
+     * {@code GET /api/subjects/{id} → SubjectDetail.visits}. Out-of-range values exist in the
+     * database because the QC-tolerant {@code X-Allow-OOR: true} path and CSV import both skip
+     * the {@code @DecimalMax} DTO guard — but the frozen Python contract forbids callers from
+     * ever receiving them back over a normal GET/POST response. QC operators see the raw values
+     * through a separate path ({@code QcListView}) that is explicitly gated behind role checks.
      */
     public static VisitResultView toResultView(Visit visit) {
         return new VisitResultView(
@@ -57,9 +72,23 @@ public final class VisitMapper {
                 visit.getSubjectId(),
                 visit.getVisitCode(),
                 visit.getVisitDate(),
-                exactScore(visit.getRawMmse(), visit.getMmse()),
-                exactScore(visit.getRawMoca(), visit.getMoca()),
-                exactScore(visit.getRawCdrSb(), visit.getCdrSb()));
+                maskOutOfRange(exactScore(visit.getRawMmse(), visit.getMmse()), MMSE_CEIL),
+                maskOutOfRange(exactScore(visit.getRawMoca(), visit.getMoca()), MOCA_CEIL),
+                maskOutOfRange(exactScore(visit.getRawCdrSb(), visit.getCdrSb()), CDR_SB_CEIL));
+    }
+
+    /**
+     * Returns {@code raw} when it is within [0, {@code ceil}], otherwise {@code null}.
+     * {@code null} input stays {@code null} — a missing score is never promoted to out-of-range.
+     */
+    private static BigDecimal maskOutOfRange(BigDecimal value, BigDecimal ceil) {
+        if (value == null) {
+            return null;
+        }
+        if (value.compareTo(BigDecimal.ZERO) < 0 || value.compareTo(ceil) > 0) {
+            return null;
+        }
+        return value;
     }
 
     /** Raw text first (authoritative), then the derived DECIMAL column, then {@code null}. */

@@ -433,12 +433,16 @@ class VisitApiTest {
                 .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("data").get("mmse").decimalValue())
-                .isEqualByComparingTo(new BigDecimal("30.1"));
+        assertThat(body.get("data").get("mmse").isNull())
+                .as("P1 Python contract mask: MMSE=30.1 超限 → 响应体 mask 为 null");
 
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
-        assertThat(fromDetail.get("mmse").decimalValue())
-                .isEqualByComparingTo(new BigDecimal("30.1"));
+        assertThat(fromDetail.get("mmse").isNull())
+                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值");
+
+        Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getRawMmse()).isEqualTo("30.1");
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("30.10"));
     }
 
     @Test
@@ -537,12 +541,16 @@ class VisitApiTest {
                 .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("data").get("cdrSb").decimalValue())
-                .isEqualByComparingTo(new BigDecimal("18.1"));
+        assertThat(body.get("data").get("cdrSb").isNull())
+                .as("P1 Python contract mask: CDR-SB=18.1 超限 → 响应体 mask 为 null");
 
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
-        assertThat(fromDetail.get("cdrSb").decimalValue())
-                .isEqualByComparingTo(new BigDecimal("18.1"));
+        assertThat(fromDetail.get("cdrSb").isNull())
+                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值");
+
+        Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getRawCdrSb()).isEqualTo("18.1");
+        assertThat(entity.getCdrSb()).isEqualByComparingTo(new BigDecimal("18.10"));
     }
 
     /**
