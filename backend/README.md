@@ -53,6 +53,10 @@
 - 提交审核（`POST /api/qc/audit/{id}/submit`）仅限 ADMIN / RESEARCHER，DOCTOR / PATIENT 调用直接返回 403 ACCESS_DENIED。
 - **并发安全**：审核决策通过 `QcAuditRecordRepository.updateDecision` 原子条件更新——`WHERE q.id = :id AND q.status = 'PENDING'`。两个审核员同时审核同一 PENDING 行时，数据库行锁保证恰好一个返回 rows=1（成功 transition），另一个返回 rows=0（已被他人处理，Service 层抛 400 VALIDATION_ERROR"该记录已被其他审核员处理"）。`@Modifying(clearAutomatically = true)` 保证一级缓存被清理，后续查询不会读到 stale entity。
 
+**OpenAPI 契约兼容性**：本次实现的三个 QC 端点（`GET /api/qc/list`、`POST /api/qc/audit/{id}/submit`、`GET /api/qc/stats`）**均超出 `contracts/java-business.target.openapi.json` 的 22 个契约路径范围**，属于后端为支持人工审核工作流自扩展的端点。契约中唯一的 QC 相关路径是 `POST /api/subjects/{subjectId}/quality-checks`（subject 级别触发 Python 质量检查），返回 `QualityCheck` schema（`qualityStatus` ∈ PASS/WARN/BLOCKED、`issues`、`ruleVersion` 等），标注 `TO_IMPLEMENT_BY_BACKEND_OWNER`，目前尚未实现。
+
+因此脱敏的 `abnormalItems`（异常详情 JSON）和 `auditComment`（审核备注）两个字段**不在契约文件中**——契约的 `QualityCheck` schema 根本没有这两个属性，也不存在对它们的 required 限制。脱敏返回 `null` 完全不违反 OpenAPI 契约的任何硬性约束，零冲突。未来若契约升级加入人工审核端点，需在契约中明确哪些字段 required、哪些可选，届时以契约为准再评估脱敏兼容性。
+
 **访视超限值脱敏（Python 契约兼容）**：`VisitMapper.maskOutOfRange` 在 HTTP 出口（POST 响应 + GET subjectDetail）将 `mmse > 30`、`moca > 30`、`cdrSb > 18` 的值 mask 为 `null`，但 Entity 仍保留原始值供 QC 规则检测（QC 引擎读的是 `raw_mmse`/`raw_moca`/`raw_cdr_sb` VARCHAR 列，而非 DECIMAL 展示列）。需要写入超限值时必须带 `X-Allow-OOR: true` 头，且 `SubjectAccessPolicy.canReadRawScores` 返回 true 的角色才能在响应中看到未脱敏值——实际上目前所有角色的 HTTP 出口统一脱敏，超限值永远对外返回 `null`。
 
 权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建档案仅限 ADMIN / RESEARCHER；创建访视沿用**同一条** `SubjectAccessPolicy.canCreate` 规则，因此单档案的 `MANAGE` 授权并不足以创建访视。
