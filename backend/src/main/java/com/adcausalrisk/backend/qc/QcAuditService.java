@@ -280,6 +280,12 @@ public class QcAuditService {
         }
 
         List<QcListView> items = paged.getContent().stream().map(this::toView).toList();
+
+        boolean auditorRole = principal.roleCodes().stream().anyMatch(AUDITOR_ROLES::contains);
+        if (!auditorRole) {
+            items = items.stream().map(this::maskSensitiveFields).toList();
+        }
+
         return new PageResult<>(items, safePage, safePageSize, paged.getTotalElements());
     }
 
@@ -401,6 +407,37 @@ public class QcAuditService {
                 row.getAuditorName(),
                 row.getAuditedAt(),
                 row.getCreatedAt());
+    }
+
+    /**
+     * Field-level masking for non-auditor roles ({@code DOCTOR}, {@code PATIENT}).
+     *
+     * <p>Subject-level filtering already restricts which rows they see, but even the rows
+     * they are allowed to see must not leak clinical details or internal audit notes —
+     * the frozen contract treats scores and comments as privileged clinical data that only
+     * ADMIN / RESEARCHER can inspect. This mirrors how {@code SubjectApiTest} omits
+     * visit scores from the patient-facing subject detail payload.
+     *
+     * <p>Fields nulled out: {@code abnormalItems}, {@code auditComment}.
+     * Fields preserved: {@code status}, IDs, codes, timestamps, targetType/sourceType —
+     * enough for the frontend to render audit-progress UI without exposing PHI.
+     */
+    private QcListView maskSensitiveFields(QcListView src) {
+        return new QcListView(
+                src.id(),
+                src.subjectId(),
+                src.visitId(),
+                src.subjectCode(),
+                src.subjectAlias(),
+                src.visitCode(),
+                src.targetType(),
+                src.sourceType(),
+                src.status(),
+                null,
+                null,
+                src.auditorName(),
+                src.auditedAt(),
+                src.createdAt());
     }
 
     /**

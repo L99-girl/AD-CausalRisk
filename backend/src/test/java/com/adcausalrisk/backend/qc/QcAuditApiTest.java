@@ -287,6 +287,115 @@ class QcAuditApiTest {
         assertThat(adminList.get("total").asLong()).isEqualTo(2);
     }
 
+    /**
+     * P1 privacy: a DOCTOR who <em>is</em> granted on a subject must still not see the
+     * clinical details (abnormalItems) or internal audit notes (auditComment) on the rows
+     * they are allowed to list. Only ADMIN / RESEARCHER can inspect those fields.
+     *
+     * <p>Contrasts with {@link #doctorListScopedToGrantedSubjectsOnly} which proves the
+     * row-level subject filter — this one adds the field-level filter on top.
+     */
+    @Test
+    void doctorListSensitiveFieldsAreMasked() throws Exception {
+        MockHttpSession admin = login("admin");
+        MockHttpSession doctor = login("doctor");
+        Long doctorId = userId("doctor");
+        Long adminId = userId("admin");
+        Instant now = Instant.now();
+
+        Subject subject = seedSubject("QC-SENSITIVE-MASK");
+
+        jdbc.update(
+                "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                        + "auditor_id, abnormal_items, audit_comment, created_at, updated_at) "
+                        + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'PENDING', ?, ?, ?, ?, ?)",
+                subject.getId(), adminId,
+                "[\"MMSE 得分 99 超出临床范围\"]",
+                "需要重新录入，原始值疑似笔误",
+                now, now);
+
+        jdbc.update(
+                "INSERT INTO subject_permission (subject_id, user_id, permission_type) "
+                        + "VALUES (?, ?, 'VIEW')",
+                subject.getId(), doctorId);
+
+        JsonNode doctorItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(doctor))
+                .andExpect(status().isOk())
+                .andReturn()).get("data").get("items");
+
+        assertThat(doctorItems.size()).isEqualTo(1);
+        JsonNode masked = doctorItems.get(0);
+
+        assertThat(masked.get("status").asText()).isEqualTo("PENDING");
+        assertThat(masked.get("subjectCode").asText()).isEqualTo("QC-SENSITIVE-MASK");
+        assertThat(masked.get("targetType").asText()).isEqualTo("VISIT");
+        assertThat(masked.get("createdAt")).isNotNull();
+
+        assertThat(masked.get("abnormalItems").isNull())
+                .as("DOCTOR must not see abnormalItems (clinical PHI)");
+        assertThat(masked.get("auditComment").isNull())
+                .as("DOCTOR must not see auditComment (internal notes)");
+
+        JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
+                .andExpect(status().isOk())
+                .andReturn()).get("data").get("items");
+
+        assertThat(adminItems.size()).isEqualTo(1);
+        JsonNode full = adminItems.get(0);
+        assertThat(full.get("abnormalItems").asText())
+                .isEqualTo("[\"MMSE 得分 99 超出临床范围\"]");
+        assertThat(full.get("auditComment").asText())
+                .isEqualTo("需要重新录入，原始值疑似笔误");
+    }
+
+    /**
+     * Same masking contract for PATIENT — they also only see the audit progress, not
+     * the clinical or internal-comment details. Requires a subject_permission grant first.
+     */
+    @Test
+    void patientListSensitiveFieldsAreMasked() throws Exception {
+        MockHttpSession patient = login("patient");
+        MockHttpSession admin = login("admin");
+        Long patientId = userId("patient");
+        Long adminId = userId("admin");
+        Instant now = Instant.now();
+
+        Subject subject = seedSubject("QC-PATIENT-MASK");
+
+        jdbc.update(
+                "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                        + "auditor_id, abnormal_items, audit_comment, created_at, updated_at) "
+                        + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'APPROVED', ?, ?, ?, ?, ?)",
+                subject.getId(), adminId,
+                "[\"CDR-SB 异常\"]",
+                "原始分数已人工复核",
+                now, now);
+
+        jdbc.update(
+                "INSERT INTO subject_permission (subject_id, user_id, permission_type) "
+                        + "VALUES (?, ?, 'VIEW')",
+                subject.getId(), patientId);
+
+        JsonNode patientItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(patient))
+                .andExpect(status().isOk())
+                .andReturn()).get("data").get("items");
+
+        assertThat(patientItems.size()).isEqualTo(1);
+        assertThat(patientItems.get(0).get("abnormalItems").isNull())
+                .as("PATIENT must not see abnormalItems");
+        assertThat(patientItems.get(0).get("auditComment").isNull())
+                .as("PATIENT must not see auditComment");
+
+        JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
+                .andExpect(status().isOk())
+                .andReturn()).get("data").get("items");
+
+        assertThat(adminItems.get(0).get("abnormalItems").asText())
+                .isEqualTo("[\"CDR-SB 异常\"]");
+        assertThat(adminItems.get(0).get("auditComment").asText())
+                .isEqualTo("原始分数已人工复核");
+    }
+
     @Test
     void doctorListReturnsEmptyWhenNoGrantsAtAll() throws Exception {
         MockHttpSession doctor = login("doctor");
