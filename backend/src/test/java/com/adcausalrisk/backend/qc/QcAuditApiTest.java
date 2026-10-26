@@ -348,9 +348,9 @@ class QcAuditApiTest {
         assertThat(masked.get("createdAt")).isNotNull();
 
         assertThat(masked.get("abnormalItems").isNull())
-                .as("DOCTOR must not see abnormalItems (clinical PHI)");
+                .as("DOCTOR must not see abnormalItems (clinical PHI)").isTrue();
         assertThat(masked.get("auditComment").isNull())
-                .as("DOCTOR must not see auditComment (internal notes)");
+                .as("DOCTOR must not see auditComment (internal notes)").isTrue();
 
         JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
                 .andExpect(status().isOk())
@@ -398,9 +398,9 @@ class QcAuditApiTest {
 
         assertThat(patientItems.size()).isEqualTo(1);
         assertThat(patientItems.get(0).get("abnormalItems").isNull())
-                .as("PATIENT must not see abnormalItems");
+                .as("PATIENT must not see abnormalItems").isTrue();
         assertThat(patientItems.get(0).get("auditComment").isNull())
-                .as("PATIENT must not see auditComment");
+                .as("PATIENT must not see auditComment").isTrue();
 
         JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
                 .andExpect(status().isOk())
@@ -460,9 +460,9 @@ class QcAuditApiTest {
             assertThat(masked.get("status").asText()).isEqualTo("PENDING");
             assertThat(masked.get("subjectCode").asText()).isEqualTo("QC-PATIENT-RESEARCHER");
             assertThat(masked.get("abnormalItems").isNull())
-                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see abnormalItems");
+                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see abnormalItems").isTrue();
             assertThat(masked.get("auditComment").isNull())
-                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see auditComment");
+                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see auditComment").isTrue();
 
             MockHttpSession admin = login("admin");
             JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))

@@ -434,11 +434,11 @@ class VisitApiTest {
                 .andReturn());
 
         assertThat(body.get("data").get("mmse").isNull())
-                .as("P1 mask: POST 响应 mmse 必须为 null");
+                .as("P1 mask: POST 响应 mmse 必须为 null").isTrue();
 
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
         assertThat(fromDetail.get("mmse").isNull())
-                .as("P1 mask: GET subjectDetail.visits[].mmse 必须为 null");
+                .as("P1 mask: GET subjectDetail.visits[].mmse 必须为 null").isTrue();
 
         Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
         assertThat(entity.getRawMmse()).isEqualTo("30.1");
@@ -542,11 +542,11 @@ class VisitApiTest {
                 .andReturn());
 
         assertThat(body.get("data").get("cdrSb").isNull())
-                .as("P1 Python contract mask: CDR-SB=18.1 超限 → 响应体 mask 为 null");
+                .as("P1 Python contract mask: CDR-SB=18.1 超限 → 响应体 mask 为 null").isTrue();
 
         JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
         assertThat(fromDetail.get("cdrSb").isNull())
-                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值");
+                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值").isTrue();
 
         Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
         assertThat(entity.getRawCdrSb()).isEqualTo("18.1");
