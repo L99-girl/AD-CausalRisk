@@ -15,7 +15,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.adcausalrisk.backend.common.BusinessException;
 import com.adcausalrisk.backend.common.ErrorCode;
@@ -31,6 +34,7 @@ import com.adcausalrisk.backend.qc.entity.QcAuditRecord.TargetType;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 import com.adcausalrisk.backend.subject.SubjectRepository;
+import com.adcausalrisk.backend.visit.VisitCreatedEvent;
 import com.adcausalrisk.backend.visit.VisitRepository;
 import com.adcausalrisk.backend.visit.entity.Visit;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -100,16 +104,63 @@ public class QcAuditService {
     }
 
     // ===================================================================
-    //  1. Generate QC records  (called from VisitService / import pipeline)
+    //  0. AFTER_COMMIT listener — decoupled QC trigger
     // ===================================================================
 
     /**
-     * Runs the simple built-in QC rules against a freshly-saved visit, and inserts a
-     * PENDING row when any of them fire. Called by {@link VisitService} after a successful
-     * visit insert, and by the import pipeline after committing a batch of visits.
+     * Spring event listener that fires only after {@code VisitService.createVisit} has
+     * <b>successfully committed</b> its transaction. The listener itself runs in a fresh
+     * {@link Propagation#REQUIRES_NEW} transaction on a brand-new physical connection, so
+     * any QC failure (FK violation, constraint, SQL error, anything) stays confined to
+     * this new transaction — the visit row that was just created is already durably on
+     * disk and can never be rolled back by a QC accident.
+     *
+     * <p>This replaces the earlier approach of calling {@link #generateQcRecord} directly
+     * inside {@code VisitService} wrapped in a try/catch. That attempt failed because
+     * Spring/JPA still marked the shared transaction {@code rollback-only} even when the
+     * exception was caught, or raised {@code UnexpectedRollbackException} at commit time.
+     * AFTER_COMMIT + REQUIRES_NEW is the canonical Spring pattern for "side-effect work
+     * that must never poison the primary transaction".
+     *
+     * <p>Loads a fresh, attached {@link Visit} from its own session before delegating to
+     * {@link #generateQcRecord}, because the entity reference that was saved in the
+     * publisher's session is detached by the time this listener runs.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void onVisitCreated(VisitCreatedEvent event) {
+        log.info("AFTER_COMMIT QC trigger for visit id={} operatorId={}",
+                event.visitId(), event.operatorId());
+        try {
+            Visit visit = visitRepository.findById(event.visitId()).orElseThrow(() ->
+                    new IllegalStateException("Visit " + event.visitId()
+                            + " disappeared between commit and QC listener — DB consistency issue"));
+            generateQcRecord(visit, event.operatorId(), null);
+        } catch (Exception qcFailure) {
+            // REQUIRES_NEW: this catch is belt-and-suspenders. The transaction will
+            // roll back regardless (it's the REQUIRES_NEW one, not the Visit's), but we
+            // swallow here so an uncaught Spring event listener exception doesn't propagate
+            // up through whatever scheduled/async mechanism fired the commit.
+            log.error("QC listener failed for visit id={} — visit is safely committed, audit row NOT created",
+                    event.visitId(), qcFailure);
+        }
+    }
+
+    // ===================================================================
+    //  1. Generate QC records  (core logic — called by the listener above)
+    // ===================================================================
+
+    /**
+     * Runs the simple built-in QC rules against a visit and inserts a PENDING row when any
+     * of them fire.
+     *
+     * <p>The caller is expected to provide a transactional context. Today this is the
+     * {@link #onVisitCreated} listener, which runs in {@code REQUIRES_NEW}. The method is
+     * public so import pipelines and manual QC endpoints can also invoke it directly —
+     * those callers own their own transaction boundaries.
      *
      * <p>The rules are intentionally simple — this is not the Python rule engine. It catches
-     * obvious data-entry mistakes before a human ever opens the review queue. The {@code auditorId}
+     * obvious data-entry mistakes before a human ever opens the review queue. The {@code operatorId}
      * passed in is the person whose action triggered the check (e.g. the import operator),
      * not the person who will eventually review it.
      *
@@ -124,26 +175,7 @@ public class QcAuditService {
      * </ul>
      *
      * <p>Idempotent: if a PENDING row already exists for this visit, we skip insertion.
-     * The caller does not care whether a row was created.
-     *
-     * <p><b>Rollback isolation — noRollbackFor = Exception.class.</b> QC must never roll back a
-     * visit that was already validated and inserted. The obvious approaches both fail here:
-     * <ul>
-     *   <li>{@code REQUIRED} (plain {@code @Transactional}) — when QC throws inside the shared
-     *       transaction JPA marks it {@code rollback-only}; VisitService swallows the exception
-     *       but the outer commit still aborts.</li>
-     *   <li>{@code REQUIRES_NEW} — opens a fresh physical connection that cannot see the Subject
-     *       row the outer transaction inserted-but-not-committed, so FK constraints fail.</li>
-     *   <li>{@code NESTED} — Hibernate 6's {@code HibernateJpaDialect} does not advertise savepoint
-     *       support, so Spring throws {@code NestedTransactionNotSupportedException}.</li>
-     * </ul>
-     * We share the caller's transaction (default {@code REQUIRED}) but instruct Spring not to
-     * roll back on any exception. The exception still propagates out and VisitService catches it;
-     * because the transaction was never marked {@code rollback-only}, the outer commit proceeds
-     * normally. Any SQL QC did manage to execute before the failure stays — that is acceptable
-     * because QC writes are idempotent and can be retried later via the manual endpoint.
      */
-    @Transactional(noRollbackFor = Exception.class)
     public void generateQcRecord(Visit visit, Long operatorId, Long qualityCheckId) {
         BigDecimal mmse = originalScoreOf(visit.getRawMmse(), visit.getMmse());
         BigDecimal moca = originalScoreOf(visit.getRawMoca(), visit.getMoca());

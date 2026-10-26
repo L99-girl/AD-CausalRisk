@@ -39,6 +39,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * End-to-end integration tests for the single visit endpoint
@@ -94,6 +97,9 @@ class VisitApiTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager txManager;
 
     // ===================================================================
     // 1. POST /api/subjects/{subjectId}/visits - happy path
@@ -474,16 +480,35 @@ class VisitApiTest {
     @Test
     void mmseNinetyNineWithAllowOorHeaderSavesVisitAndCreatesQcRecord() throws Exception {
         MockHttpSession admin = login("admin");
-        Subject subject = seedSubject("DEMO-V-MMSE-99-QC");
 
-        JsonNode created = bodyOf(mockMvc.perform(
-                        createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
-                                .header("X-Allow-OOR", "true")
-                                .session(admin))
-                .andExpect(status().isOk())
-                .andReturn());
+        Long[] ids = new Long[2]; // [0]=subjectId, [1]=visitId
 
-        Long visitId = created.get("data").get("id").asLong();
+        // REQUIRES_NEW is critical here: VisitApiTest.class has @Transactional (TestTransaction),
+        // and a plain TransactionTemplate would join that outer transaction — meaning no commit,
+        // meaning @TransactionalEventListener(AFTER_COMMIT) never fires. We need a genuinely
+        // independent commit so that Spring dispatches the event.
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        tx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("DEMO-V-MMSE-99-QC");
+                ids[0] = subject.getId();
+
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
 
         Visit entity = visitRepository.findById(visitId).orElseThrow();
         assertThat(entity.getRawMmse()).isEqualTo("99.0");
@@ -494,6 +519,10 @@ class VisitApiTest {
         assertThat(qc.getStatus()).isEqualTo(QcAuditRecord.Status.PENDING);
         assertThat(qc.getAbnormalItems()).contains("99.0").contains("MMSE");
         assertThat(qc.getAuditorId()).isEqualTo(userId("admin"));
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
     }
 
     @Test
@@ -528,16 +557,31 @@ class VisitApiTest {
     @Test
     void highPrecisionOutOfRangeScoreIsCaughtByQcBeforeDecimalRoundingHidesIt() throws Exception {
         MockHttpSession admin = login("admin");
-        Subject subject = seedSubject("DEMO-V-ROUNDING-HIDE");
 
-        JsonNode created = bodyOf(mockMvc.perform(
-                        createVisit(subject.getId(), "BL", "2025-01-01", 30.004, null, null)
-                                .header("X-Allow-OOR", "true")
-                                .session(admin))
-                .andExpect(status().isOk())
-                .andReturn());
+        Long[] ids = new Long[2]; // [0]=subjectId, [1]=visitId
 
-        Long visitId = created.get("data").get("id").asLong();
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        tx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("DEMO-V-ROUNDING-HIDE");
+                ids[0] = subject.getId();
+
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 30.004, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
 
         Visit entity = visitRepository.findById(visitId).orElseThrow();
         assertThat(entity.getRawMmse())
@@ -554,6 +598,10 @@ class VisitApiTest {
                 .as("anomalies must reference the original 30.004, not the rounded 30.00")
                 .contains("30.004")
                 .contains("MMSE");
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
     }
 
     @Test

@@ -5,13 +5,13 @@ import java.time.format.DateTimeParseException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.adcausalrisk.backend.common.BusinessException;
 import com.adcausalrisk.backend.common.ErrorCode;
-import com.adcausalrisk.backend.qc.QcAuditService;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 import com.adcausalrisk.backend.subject.SubjectRepository;
@@ -45,22 +45,18 @@ public class VisitService {
 
     private final EntityManager entityManager;
 
-    /**
-     * Fire-and-forget QC trigger. Failure must never undo the visit insert — see
-     * the try/catch site in {@link #createVisit}.
-     */
-    private final QcAuditService qcAuditService;
+    private final ApplicationEventPublisher events;
 
     public VisitService(VisitRepository visitRepository,
                         SubjectRepository subjectRepository,
                         SubjectAccessPolicy accessPolicy,
                         EntityManager entityManager,
-                        QcAuditService qcAuditService) {
+                        ApplicationEventPublisher events) {
         this.visitRepository = visitRepository;
         this.subjectRepository = subjectRepository;
         this.accessPolicy = accessPolicy;
         this.entityManager = entityManager;
-        this.qcAuditService = qcAuditService;
+        this.events = events;
     }
 
     /**
@@ -118,19 +114,15 @@ public class VisitService {
             // Refreshing re-reads the row that was just written.
             entityManager.refresh(saved);
 
-            // ── QC auto-trigger ──────────────────────────────────────────
-            // Running inside the same @Transactional as the insert, but the
-            // try/catch below swallows every RuntimeException — QC failure must
-            // never undo a visit that was already validated and inserted.
-            // An anomaly log here means "visit was stored, but QC crashed
-            // before writing the audit row"; the operator can retry via a
-            // manual endpoint later if needed.
-            try {
-                qcAuditService.generateQcRecord(saved, principal.userId(), null);
-            } catch (RuntimeException qcFailure) {
-                log.error("QC auto-trigger failed for visit id={} — visit saved but no audit row created",
-                        saved.getId(), qcFailure);
-            }
+            // ── QC auto-trigger (decoupled via event) ──────────────────
+            // Publishing inside the @Transactional method makes Spring defer delivery
+            // until AFTER_COMMIT. The listener runs in its own REQUIRES_NEW transaction —
+            // by the time it fires, this Visit row is already durably committed to the DB,
+            // so any QC failure (FK, constraint, anything) stays isolated and cannot roll
+            // back the visit that the caller just created. The VisitCreatedEvent carries
+            // only the PK so the listener can re-load a fresh, attached entity in its own
+            // session (we must not pass the here-entity; after commit it will be detached).
+            events.publishEvent(new VisitCreatedEvent(saved.getId(), principal.userId()));
 
             return VisitMapper.toResultView(saved);
         } catch (DataIntegrityViolationException exception) {

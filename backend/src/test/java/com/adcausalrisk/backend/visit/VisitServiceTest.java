@@ -11,7 +11,6 @@ import java.util.List;
 
 import com.adcausalrisk.backend.common.BusinessException;
 import com.adcausalrisk.backend.common.ErrorCode;
-import com.adcausalrisk.backend.qc.QcAuditService;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 import com.adcausalrisk.backend.subject.SubjectPermissionRepository;
@@ -20,6 +19,7 @@ import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
 import com.adcausalrisk.backend.visit.entity.Visit;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import jakarta.persistence.EntityManager;
@@ -64,7 +64,7 @@ class VisitServiceTest {
 
         VisitService service = new VisitService(
                 visitRepository, subjectRepository, accessPolicy,
-                mock(EntityManager.class), mock(QcAuditService.class));
+                mock(EntityManager.class), mock(ApplicationEventPublisher.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, REQUEST, ADMIN))
                 .isInstanceOf(BusinessException.class)
@@ -93,7 +93,7 @@ class VisitServiceTest {
 
         VisitService service = new VisitService(
                 visitRepository, subjectRepository, accessPolicy,
-                mock(EntityManager.class), mock(QcAuditService.class));
+                mock(EntityManager.class), mock(ApplicationEventPublisher.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, impossible, ADMIN))
                 .isInstanceOf(BusinessException.class)
