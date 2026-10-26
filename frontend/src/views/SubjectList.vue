@@ -19,12 +19,12 @@
             <template #icon><icon-plus /></template>
             新增
           </a-button>
-          <a-popconfirm v-permission="['ADMIN']" content="确定删除选中的档案？" position="bottom" @ok="handleBatchDelete">
-            <a-button :disabled="selectedRowKeys.length === 0" status="danger">
+          <a-tooltip content="后端暂未支持删除" position="bottom">
+            <a-button :disabled="true" status="danger">
               <template #icon><icon-delete /></template>
               删除
             </a-button>
-          </a-popconfirm>
+          </a-tooltip>
           <a-divider direction="vertical" />
           <a-button disabled>
             <template #icon><icon-download /></template>
@@ -186,7 +186,9 @@
                   <a-space :size="6" class="action-links">
                     <a-link @click.stop="handleDetail(record)">详情</a-link>
                     <a-link status="warning" @click.stop="handleEdit(record)">编辑</a-link>
-                    <a-link status="danger" @click.stop="handleDelete(record)">删除</a-link>
+                    <a-tooltip content="后端暂未支持删除" position="bottom">
+                      <span class="disabled-link">删除</span>
+                    </a-tooltip>
                   </a-space>
                 </template>
               </a-table-column>
@@ -880,6 +882,12 @@ onMounted(fetchList)
 
 .action-links { font-size: 13px; }
 .action-links .arco-link { padding: 2px 4px; }
+.disabled-link {
+  color: var(--color-text-4);
+  cursor: not-allowed;
+  padding: 2px 4px;
+  text-decoration: none;
+}
 
 .pagination-wrap {
   display: flex; justify-content: flex-end;

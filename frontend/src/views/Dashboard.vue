@@ -43,7 +43,10 @@
                   <icon-arrow-fall v-else />
                 </span>
               </div>
-              <div class="stat-title">{{ s.title }}</div>
+              <div class="stat-title">
+                {{ s.title }}
+                <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
+              </div>
               <div class="stat-foot">{{ s.foot }}</div>
             </div>
           </div>
@@ -58,6 +61,7 @@
             <div class="card-title-inner">
               <span class="card-title-dot" />
               档案增长趋势
+              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="growthOption" height="320px" />
@@ -72,6 +76,7 @@
             <div class="card-title-inner">
               <span class="card-title-dot orange" />
               风险等级分布
+              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="riskOption" height="320px" />
@@ -83,6 +88,7 @@
             <div class="card-title-inner">
               <span class="card-title-dot green" />
               诊断类型统计
+              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="diagnosisOption" height="320px" />
@@ -393,7 +399,8 @@ function refreshAll() {
 }
 .stat-trend.up { color: #00B42A; }
 .stat-trend.down { color: #F53F3F; }
-.stat-title { font-size: 13px; color: var(--color-text-2); margin-top: 4px; font-weight: 500; }
+.stat-title { font-size: 13px; color: var(--color-text-2); margin-top: 4px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.mock-tag { margin-left: 4px; vertical-align: middle; }
 .stat-foot { font-size: 11px; color: var(--color-text-3); margin-top: 2px; }
 
 .chart-row { margin-bottom: 16px; }
