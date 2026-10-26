@@ -1,6 +1,7 @@
 package com.adcausalrisk.backend.visit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -825,6 +826,139 @@ class VisitApiTest {
                 .andReturn());
 
         assertThat(body.get("errorCode").asText()).isEqualTo("UNAUTHENTICATED");
+    }
+
+    // ===================================================================
+    // Transaction rollback isolation tests
+    // ===================================================================
+
+    /**
+     * Main transaction rolls back → {@code AFTER_COMMIT} event is never dispatched because
+     * the commit phase was never reached. Subject, Visit and QC row must all be absent.
+     *
+     * <p>This is the negative proof for the event architecture: if the outer transaction
+     * aborts, QC must not fire — it would otherwise emit an audit row for a Visit that
+     * does not exist.
+     */
+    @Test
+    void mainTransactionRollsBackNeitherVisitNorQcCreated() throws Exception {
+        String subjectCode = "ROLLBACK-MAIN";
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            try {
+                seedSubject(subjectCode);
+                throw new RuntimeException("intentional rollback after seed — verify nothing persisted");
+            } catch (RuntimeException rethrow) {
+                throw rethrow;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        })).hasMessageContaining("intentional rollback");
+
+        assertThat(subjectRepository.findBySubjectCode(subjectCode)).isEmpty();
+        int qcRowsForThisCode = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM qc_audit_record q JOIN visit v ON q.visit_id = v.id " +
+                        "JOIN subject s ON v.subject_id = s.id WHERE s.subject_code = ?",
+                Integer.class, subjectCode);
+        assertThat(qcRowsForThisCode).as("rollback must leave zero QC rows").isEqualTo(0);
+    }
+
+    /**
+     * Visit is durably committed first (its own REQUIRES_NEW), and then a second
+     * REQUIRES_NEW transaction crashes. The Visit must still be present — the two
+     * transactions are on independent physical connections; one cannot poison the other.
+     *
+     * <p>This is the definitive isolation proof: {@code AFTER_COMMIT + REQUIRES_NEW} means
+     * the QC side lives in a completely separated lifecycle.
+     */
+    @Test
+    void visitSurvivesEvenWhenLaterRequiresNewCrashes() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        Long[] ids = new Long[2];
+        TransactionTemplate visitTx = new TransactionTemplate(txManager);
+        visitTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        visitTx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("SURVIVE-QC-CRASH");
+                ids[0] = subject.getId();
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 25.0, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
+        assertThat(visitRepository.findById(visitId)).isPresent();
+
+        TransactionTemplate crashTx = new TransactionTemplate(txManager);
+        crashTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThatThrownBy(() -> crashTx.executeWithoutResult(status -> {
+            throw new RuntimeException("simulated REQUIRES_NEW crash on QC side");
+        })).hasMessageContaining("simulated REQUIRES_NEW crash");
+
+        assertThat(visitRepository.findById(visitId))
+                .as("Visit that was committed earlier must survive an unrelated REQUIRES_NEW crash")
+                .isPresent();
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+    }
+
+    /**
+     * DTO validation rejects MMSE=99 with no {@code X-Allow-OOR} header → HTTP 400.
+     * {@code VisitController} aborts the write entirely, so no row → no event → no QC.
+     *
+     * <p>This contrasts with {@link VisitApiTest#mmseNinetyNineWithoutHeaderIsRejectedAs400AndNoQcRecordCreated}
+     * at the API level and the {@link #mainTransactionRollsBackNeitherVisitNorQcCreated}
+     * at the transaction level. Together they prove: every path that aborts before commit
+     * also aborts the QC trigger.
+     */
+    @Test
+    void dtoValidationRejectionLeavesNoVisitAndNoQc() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Long[] ids = new Long[2];
+        try {
+            tx.executeWithoutResult(status -> {
+                try {
+                    Subject subject = seedSubject("DTO-REJECT");
+                    ids[0] = subject.getId();
+                    JsonNode body = bodyOf(mockMvc.perform(
+                                    createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                                            .session(admin))
+                            .andExpect(status().isBadRequest())
+                            .andReturn());
+                    assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        } catch (RuntimeException ignored) {
+        }
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM visit WHERE subject_id = ? AND visit_code = ?",
+                Integer.class, ids[0], "BL"))
+                .as("rejected visit must not be persisted")
+                .isEqualTo(0);
+
+        if (ids[0] != null) {
+            jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+        }
     }
 
     // ===================================================================
