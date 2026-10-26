@@ -423,7 +423,7 @@
 <script setup>
 import { ref, computed, reactive, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Message, Modal } from '@arco-design/web-vue'
+import { Message } from '@arco-design/web-vue'
 import {
   IconUser, IconHeart, IconCloseCircle, IconCheckCircle,
   IconPlus, IconDelete, IconDownload, IconUpload, IconRefresh,
@@ -722,37 +722,6 @@ async function handleDetail(record) {
 
 function handleEdit(record) {
   Message.warning(`编辑 ${record.subjectCode} — 功能开发中`)
-}
-
-function handleDelete(record) {
-  Modal.warning({
-    title: '删除确认',
-    content: `确定要删除档案 ${record.subjectCode}（${record.alias}）吗？此操作不可撤销。`,
-    okText: '确认删除',
-    cancelText: '取消',
-    okButtonProps: { status: 'danger' },
-    onOk: () => {
-      Message.success(`已删除 ${record.subjectCode}`)
-      list.value = list.value.filter(x => x.id !== record.id)
-      totalCount.value--
-    }
-  })
-}
-
-function handleBatchDelete() {
-  const keys = selectedRowKeys.value
-  Modal.warning({
-    title: '批量删除',
-    content: `确定删除选中的 ${keys.length} 条档案？`,
-    okText: '确认删除',
-    cancelText: '取消',
-    okButtonProps: { status: 'danger' },
-    onOk: () => {
-      Message.success(`已删除 ${keys.length} 条`)
-      list.value = list.value.filter(x => !keys.includes(x.id))
-      selectedRowKeys.value = []
-    }
-  })
 }
 
 onMounted(fetchList)
