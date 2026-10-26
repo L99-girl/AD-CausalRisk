@@ -5,6 +5,7 @@ import java.time.format.DateTimeParseException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,14 +45,18 @@ public class VisitService {
 
     private final EntityManager entityManager;
 
+    private final ApplicationEventPublisher events;
+
     public VisitService(VisitRepository visitRepository,
                         SubjectRepository subjectRepository,
                         SubjectAccessPolicy accessPolicy,
-                        EntityManager entityManager) {
+                        EntityManager entityManager,
+                        ApplicationEventPublisher events) {
         this.visitRepository = visitRepository;
         this.subjectRepository = subjectRepository;
         this.accessPolicy = accessPolicy;
         this.entityManager = entityManager;
+        this.events = events;
     }
 
     /**
@@ -108,6 +113,17 @@ public class VisitService {
             // instance and report the unrounded number, so POST and a later GET would disagree.
             // Refreshing re-reads the row that was just written.
             entityManager.refresh(saved);
+
+            // ── QC auto-trigger (decoupled via event) ──────────────────
+            // Publishing inside the @Transactional method makes Spring defer delivery
+            // until AFTER_COMMIT. The listener runs in its own REQUIRES_NEW transaction —
+            // by the time it fires, this Visit row is already durably committed to the DB,
+            // so any QC failure (FK, constraint, anything) stays isolated and cannot roll
+            // back the visit that the caller just created. The VisitCreatedEvent carries
+            // only the PK so the listener can re-load a fresh, attached entity in its own
+            // session (we must not pass the here-entity; after commit it will be detached).
+            events.publishEvent(new VisitCreatedEvent(saved.getId(), principal.userId()));
+
             return VisitMapper.toResultView(saved);
         } catch (DataIntegrityViolationException exception) {
             // Any integrity violation can land here, not only a duplicate visit code: the subject

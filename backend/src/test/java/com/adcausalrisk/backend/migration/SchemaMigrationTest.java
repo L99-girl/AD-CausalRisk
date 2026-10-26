@@ -40,14 +40,18 @@ class SchemaMigrationTest {
     /** Documented synthetic demo password. Must stay in sync with backend/README.md. */
     private static final String DEMO_PASSWORD = "DemoPass!2026";
 
-    /** The 15 tables promised by docs/Design_Guide.md section 3. */
+    /**
+     * Application tables. Starts from the 15 baseline tables (Design_Guide.md section 3)
+     * and grows as follow-up migrations land new domains. V7 added {@code qc_audit_record}.
+     */
     private static final List<String> BASELINE_TABLES = List.of(
             "sys_user", "sys_role", "user_role",
             "subject", "subject_permission",
             "visit", "subject_feature",
             "data_import_job", "quality_check",
             "assessment_task", "idempotency_record", "risk_assessment",
-            "assessment_review", "follow_up_plan", "audit_log");
+            "assessment_review", "follow_up_plan", "audit_log",
+            "qc_audit_record");
 
     /** Flyway's own bookkeeping table; created by Flyway, not by V1. */
     private static final String FLYWAY_HISTORY_TABLE = "flyway_schema_history";
@@ -68,7 +72,7 @@ class SchemaMigrationTest {
                 "SELECT version FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
     }
 
     /**
@@ -159,8 +163,8 @@ class SchemaMigrationTest {
     }
 
     @Test
-    void baselineDefinesExactlyTheFifteenExpectedTables() throws SQLException {
-        assertThat(BASELINE_TABLES).hasSize(15).doesNotHaveDuplicates();
+    void baselineDefinesExactlyTheExpectedTables() throws SQLException {
+        assertThat(BASELINE_TABLES).hasSize(16).doesNotHaveDuplicates();
 
         assertThat(applicationTables())
                 .containsExactlyInAnyOrderElementsOf(

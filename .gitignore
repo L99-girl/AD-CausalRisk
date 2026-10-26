@@ -32,3 +32,4 @@ test-results/
 .obsidian/
 cookies.txt
 application-local.yml
+.vite/

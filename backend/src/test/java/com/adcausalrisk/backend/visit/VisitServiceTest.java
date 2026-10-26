@@ -19,6 +19,7 @@ import com.adcausalrisk.backend.visit.dto.VisitCreateRequest;
 import com.adcausalrisk.backend.visit.entity.Visit;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import jakarta.persistence.EntityManager;
@@ -62,7 +63,8 @@ class VisitServiceTest {
                 .willThrow(new DataIntegrityViolationException("uq_visit_subject_code"));
 
         VisitService service = new VisitService(
-                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
+                visitRepository, subjectRepository, accessPolicy,
+                mock(EntityManager.class), mock(ApplicationEventPublisher.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, REQUEST, ADMIN))
                 .isInstanceOf(BusinessException.class)
@@ -90,7 +92,8 @@ class VisitServiceTest {
                 VISIT_CODE, "2025-02-30", new BigDecimal("28.0"), null, null);
 
         VisitService service = new VisitService(
-                visitRepository, subjectRepository, accessPolicy, mock(EntityManager.class));
+                visitRepository, subjectRepository, accessPolicy,
+                mock(EntityManager.class), mock(ApplicationEventPublisher.class));
 
         assertThatThrownBy(() -> service.createVisit(SUBJECT_ID, impossible, ADMIN))
                 .isInstanceOf(BusinessException.class)

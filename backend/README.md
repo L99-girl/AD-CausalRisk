@@ -16,7 +16,7 @@
 
 ## 1. 已实现范围
 
-共同契约共 **22 个操作**，目前已实现 **7 个**：
+共同契约共 **22 个操作**，其中**契约内已实现 10 个**（认证 3 + 档案 3 + 访视 1 + 导入 3），另有 **3 个扩展操作**（质控，超出契约 22 个路径范围，见下）。
 
 ### 第一组：认证（auth）
 | 操作 | 路径 | 说明 |
@@ -38,6 +38,26 @@
 | `postApiSubjectsVisitssubjectId` | `POST /api/subjects/{subjectId}/visits` | 创建访视（ADMIN / RESEARCHER） |
 
 访视**没有独立的查询接口**：契约在该路径上只声明了 `POST`，因此访视通过档案详情的 `visits` 字段读取（`GET /api/subjects/{subjectId}`）。新增一个 `GET` 属于共同契约变更，需先走契约 PR。
+
+### 第四组：质控（qc，扩展操作，超出契约 22 个路径范围）
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `getApiQcList` | `GET /api/qc/list` | 质控审核队列分页列表 |
+| `postApiQcAudit` | `POST /api/qc/{id}/audit` | 提交审核决策（APPROVED / REJECTED） |
+| `getApiQcStats` | `GET /api/qc/stats` | 按状态分组的质控计数（仪表盘） |
+
+**QC 敏感字段脱敏规则**（`QcAuditService.getQcList`）——与访视原始分数是**两套独立的权限判断**：
+- QC 列表中的 `abnormalItems`（异常详情 JSON）和 `auditComment`（审核备注）属于**审核内部字段**，只有 **AUDITOR_ROLES（ADMIN / RESEARCHER）且不带 PATIENT 角色**才能看到原值，其余角色一律返回 `null`。
+- **PATIENT 一票否决**：账号只要带 PATIENT 角色，即使同时拥有 ADMIN 或 RESEARCHER，敏感字段依然被强制脱敏为 `null`——与 `canReadRawScores` 的 PATIENT 优先规则一致。
+- **DOCTOR 哪怕有 VIEW / MANAGE 授权**，也永远看不到 `abnormalItems` 和 `auditComment`。DOCTOR 可以看到 QC 队列的状态（status = PENDING / APPROVED / REJECTED）、档案 code/alias、访视 code 等**非敏感元数据**，用于了解自己患者的质控进度，但无法查看具体异常详情或审核员的内部备注。这是 QC 内部字段与临床分数（走 `canReadRawScores`）的关键区别——后者在 DOCTOR 持有 VIEW 时是放行的。
+- 提交审核（`POST /api/qc/{id}/audit`）仅限 ADMIN / RESEARCHER，DOCTOR / PATIENT 调用直接返回 403 ACCESS_DENIED。
+- **并发安全**：审核决策通过 `QcAuditRecordRepository.updateDecision` 原子条件更新——`WHERE q.id = :id AND q.status = 'PENDING'`。两个审核员同时审核同一 PENDING 行时，数据库行锁保证恰好一个返回 rows=1（成功 transition），另一个返回 rows=0（已被他人处理，Service 层抛 400 VALIDATION_ERROR"该记录已被其他审核员处理"）。`@Modifying(clearAutomatically = true)` 保证一级缓存被清理，后续查询不会读到 stale entity。
+
+**OpenAPI 契约兼容性**：本次实现的三个 QC 端点（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`）**均超出 `contracts/java-business.target.openapi.json` 的 22 个契约路径范围**，属于后端为支持人工审核工作流自扩展的端点。契约中唯一的 QC 相关路径是 `POST /api/subjects/{subjectId}/quality-checks`（subject 级别触发 Python 质量检查），返回 `QualityCheck` schema（`qualityStatus` ∈ PASS/WARN/BLOCKED、`issues`、`ruleVersion` 等），标注 `TO_IMPLEMENT_BY_BACKEND_OWNER`，目前尚未实现。
+
+因此脱敏的 `abnormalItems`（异常详情 JSON）和 `auditComment`（审核备注）两个字段**不在契约文件中**——契约的 `QualityCheck` schema 根本没有这两个属性，也不存在对它们的 required 限制。脱敏返回 `null` 完全不违反 OpenAPI 契约的任何硬性约束，零冲突。未来若契约升级加入人工审核端点，需在契约中明确哪些字段 required、哪些可选，届时以契约为准再评估脱敏兼容性。
+
+**访视超限值脱敏（Python 契约兼容）**：`VisitMapper.maskOutOfRange` 在 HTTP 出口（POST 响应 + GET subjectDetail）将 `mmse > 30`、`moca > 30`、`cdrSb > 18` 的值 mask 为 `null`，但 Entity 仍保留原始值供 QC 规则检测（QC 引擎读的是 `raw_mmse`/`raw_moca`/`raw_cdr_sb` VARCHAR 列，而非 DECIMAL 展示列）。需要写入超限值时必须带 `X-Allow-OOR: true` 头，且 `SubjectAccessPolicy.canReadRawScores` 返回 true 的角色才能在响应中看到未脱敏值——实际上目前所有角色的 HTTP 出口统一脱敏，超限值永远对外返回 `null`。
 
 权限规则：ADMIN / RESEARCHER 全量可见；DOCTOR / PATIENT 仅可见 `subject_permission` 表中有授权的档案。创建档案仅限 ADMIN / RESEARCHER；创建访视沿用**同一条** `SubjectAccessPolicy.canCreate` 规则，因此单档案的 `MANAGE` 授权并不足以创建访视。
 
@@ -90,10 +110,10 @@ $env:ADCR_DB_PASSWORD = '<your-db-password>'
 
 ## 4. 数据库迁移
 
-- 迁移脚本位于 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（15 张表、唯一约束、外键、索引、枚举 CHECK），`V2__seed_synthetic_accounts.sql`（四角色 + 合成账号），`V3__increase_visit_score_precision.sql`（把 `visit` 的三个分数列从 `DECIMAL(4,1)` 提升为 `DECIMAL(5,2)`），`V4__preserve_raw_visit_scores.sql`（新增 `raw_*` 文本列保存提交原文，把 DECIMAL 列降级为派生列，并回填历史行 —— 回填不可逆，详见 §12），`V5__add_import_preview_storage.sql`（给 `data_import_job` 增加 `import_type` / `preview_csv` / `source_digest`，供导入预览留存与 commit 重放），`V6__add_import_preview_digest.sql`（增加 `preview_digest`，让 commit 能证明"要插入的行集"与预览时一致，而不只是数量相同）。
+- 迁移脚本位于 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（15 张表、唯一约束、外键、索引、枚举 CHECK），`V2__seed_synthetic_accounts.sql`（四角色 + 合成账号），`V3__increase_visit_score_precision.sql`（把 `visit` 的三个分数列从 `DECIMAL(4,1)` 提升为 `DECIMAL(5,2)`），`V4__preserve_raw_visit_scores.sql`（新增 `raw_*` 文本列保存提交原文，把 DECIMAL 列降级为派生列，并回填历史行 —— 回填不可逆，详见 §12），`V5__add_import_preview_storage.sql`（给 `data_import_job` 增加 `import_type` / `preview_csv` / `source_digest`，供导入预览留存与 commit 重放），`V6__add_import_preview_digest.sql`（增加 `preview_digest`，让 commit 能证明"要插入的行集"与预览时一致，而不只是数量相同），`V7__add_qc_audit_record.sql`（新建质量控制审核表 `qc_audit_record`，记录每个访视/档案的 PENDING / APPROVED / REJECTED 审核状态、异常详情与审核备注、审核人及时戳），`V8__drop_visit_score_checks.sql`（移除 `visit` 分数列上的数据库范围 CHECK 约束——0–30 / 0–18 的越界校验移交 QC 引擎处理，因为超限值仍需保留原文供质量检测，但不在数据库层强制拦截；同时超限写入由 `X-Allow-OOR` 头与 `canReadRawScores` 权限控制）。
 - **迁移在应用启动时由 Flyway 自动执行**；测试时在 H2 上由测试上下文自动执行。未配置 `flyway-maven-plugin`，因此**没有独立的迁移命令行**。
 - 表结构的唯一事实来源是迁移脚本。JPA 配置为 `ddl-auto: validate`：实体与 DDL 不一致时启动即失败，**不允许改成 `update`**，也不靠启动重建表。
-- **不要修改已经应用过的迁移**：Flyway 会因校验和不匹配而拒绝启动。新增变更请使用下一个版本号（当前已用到 `V6`，下一个是 `V7__*.sql`）。
+- **不要修改已经应用过的迁移**：Flyway 会因校验和不匹配而拒绝启动。新增变更请使用下一个版本号（当前已用到 `V8`，下一个是 `V9__*.sql`）。
 - `V1` 顶部写明了"可移植性契约"：同一份 SQL 必须同时跑在 MySQL 8 与 H2 `MODE=MySQL`，因此不使用 `ENGINE=`、`DEFAULT CHARSET`、`COLLATE`、`COMMENT`、`UNSIGNED`、`ON UPDATE CURRENT_TIMESTAMP`、`JSON` 列类型。
 
 ## 5. 启动
@@ -258,7 +278,7 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作中的 **12 个未实现**：特征、质控、评估任务、`AgentClient`、结果查询、人工复核、随访、报告、审计。
+- 契约 22 个操作，目前**契约内已实现 10 个**（认证 3 + 档案 3 + 访视 1 + 导入 3），另有 **3 个质控扩展操作**（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`），质控模块已完成接入。未实现：特征读取/写入、评估任务、`AgentClient`、结果查询、人工复核（独立端点）、随访、报告、审计。
 - **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
 - **访视分数的精度（双列语义）**：`raw_mmse`/`raw_moca`/`raw_cdr_sb` 是**权威**值，保存提交数值的**规范化文本**（`BigDecimal.toString()`；`07.50`→`7.50`、`1e1`→`1E+1`、`+1`→`1`、`-0.0`→`0.0`，**精度不丢、字面量不保留**），接口返回它；`mmse`/`moca`/`cdr_sb` 是**派生**列，等于 `round(raw, 2)`，仅供展示、列表与 SQL 统计，不参与评分。因此 `27.555` 会被接口原样返回，而 DECIMAL 列是 `27.56`。两者的派生关系由实体构造函数一次完成，`VisitApiTest` 还有一条**全表不变量**断言 `mmse == round(raw_mmse, 2)`。**V4 的回填不可逆**：V1–V3 期间写入的行早已被舍入，回填只能把"库里仅存的舍入值"复制到 `raw_*`，无法还原原始输入。`raw_*` 为 NULL 的行（手写 SQL、或回填遗漏）读取时退回 DECIMAL 列，不会返回 `null`。入口用 `@Digits(integer = 2, fraction = 61)` 拦掉超出 `VARCHAR(64)` 的精度，避免数据库报错或（MySQL 非严格模式下）静默截断。
 - **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。

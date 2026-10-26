@@ -1,6 +1,7 @@
 package com.adcausalrisk.backend.visit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import com.adcausalrisk.backend.contract.ContractSchemas;
+import com.adcausalrisk.backend.qc.QcAuditRecordRepository;
+import com.adcausalrisk.backend.qc.entity.QcAuditRecord;
 import com.adcausalrisk.backend.subject.SubjectPermissionRepository;
 import com.adcausalrisk.backend.subject.SubjectRepository;
 import com.adcausalrisk.backend.subject.entity.Subject;
@@ -37,6 +40,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * End-to-end integration tests for the single visit endpoint
@@ -88,7 +94,13 @@ class VisitApiTest {
     private VisitRepository visitRepository;
 
     @Autowired
+    private QcAuditRecordRepository qcAuditRecordRepository;
+
+    @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager txManager;
 
     // ===================================================================
     // 1. POST /api/subjects/{subjectId}/visits - happy path
@@ -411,17 +423,26 @@ class VisitApiTest {
     // ===================================================================
 
     @Test
-    void mmseAboveMaximumIsRejected() throws Exception {
+    void mmseAboveClinicalMaximumIsAcceptedForQcToCatch() throws Exception {
         MockHttpSession admin = login("admin");
         Subject subject = seedSubject("DEMO-V-MMSE-HIGH");
 
         JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 30.1, null, null)
+                        .header("X-Allow-OOR", "true")
                         .session(admin))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("mmse");
+        assertThat(body.get("data").get("mmse").isNull())
+                .as("P1 mask: POST 响应 mmse 必须为 null").isTrue();
+
+        JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(fromDetail.get("mmse").isNull())
+                .as("P1 mask: GET subjectDetail.visits[].mmse 必须为 null").isTrue();
+
+        Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getRawMmse()).isEqualTo("30.1");
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("30.10"));
     }
 
     @Test
@@ -438,17 +459,158 @@ class VisitApiTest {
     }
 
     @Test
-    void cdrSbAboveMaximumIsRejected() throws Exception {
+    void mmseNinetyNineWithoutHeaderIsRejectedAs400AndNoQcRecordCreated() throws Exception {
         MockHttpSession admin = login("admin");
-        Subject subject = seedSubject("DEMO-V-CDR-HIGH");
+        Subject subject = seedSubject("DEMO-V-MMSE-99-NOQC");
 
-        JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", null, null, 18.1)
+        JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
                         .session(admin))
                 .andExpect(status().isBadRequest())
                 .andReturn());
 
         assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
-        assertThat(body.get("message").asText()).contains("cdrSb");
+        assertThat(body.get("message").asText()).contains("mmse");
+        assertThat(body.get("message").asText()).contains("30");
+
+        assertThat(visitRepository.findAll().stream()
+                .noneMatch(v -> v.getSubjectId().equals(subject.getId())))
+                .as("无 header 时 DTO 校验拒绝 → Visit 根本没保存 → 无 QC 可以生成")
+                .isTrue();
+
+        assertThat(qcAuditRecordRepository.findAll().stream()
+                .noneMatch(r -> r.getSubjectId().equals(subject.getId())))
+                .isTrue();
+    }
+
+    @Test
+    void mmseNinetyNineWithAllowOorHeaderSavesVisitAndCreatesQcRecord() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        Long[] ids = new Long[2]; // [0]=subjectId, [1]=visitId
+
+        // REQUIRES_NEW is critical here: VisitApiTest.class has @Transactional (TestTransaction),
+        // and a plain TransactionTemplate would join that outer transaction — meaning no commit,
+        // meaning @TransactionalEventListener(AFTER_COMMIT) never fires. We need a genuinely
+        // independent commit so that Spring dispatches the event.
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        tx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("DEMO-V-MMSE-99-QC");
+                ids[0] = subject.getId();
+
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
+
+        Visit entity = visitRepository.findById(visitId).orElseThrow();
+        assertThat(entity.getRawMmse()).isEqualTo("99.0");
+        assertThat(entity.getMmse()).isEqualByComparingTo(new BigDecimal("99.00"));
+
+        QcAuditRecord qc = qcAuditRecordRepository.findTopByVisitIdOrderByCreatedAtDesc(visitId)
+                .orElseThrow(() -> new AssertionError("expected a PENDING QC record for MMSE=99"));
+        assertThat(qc.getStatus()).isEqualTo(QcAuditRecord.Status.PENDING);
+        assertThat(qc.getAbnormalItems()).contains("99.0").contains("MMSE");
+        assertThat(qc.getAuditorId()).isEqualTo(userId("admin"));
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+    }
+
+    @Test
+    void cdrSbAboveClinicalMaximumIsAcceptedForQcToCatch() throws Exception {
+        MockHttpSession admin = login("admin");
+        Subject subject = seedSubject("DEMO-V-CDR-HIGH");
+
+        JsonNode body = bodyOf(mockMvc.perform(createVisit(subject.getId(), "BL", "2025-01-01", null, null, 18.1)
+                        .header("X-Allow-OOR", "true")
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(body.get("data").get("cdrSb").isNull())
+                .as("P1 Python contract mask: CDR-SB=18.1 超限 → 响应体 mask 为 null").isTrue();
+
+        JsonNode fromDetail = firstVisitOfDetail(subject.getId(), admin);
+        assertThat(fromDetail.get("cdrSb").isNull())
+                .as("GET /api/subjects/{id}.visits 同样必须 mask 超限值").isTrue();
+
+        Visit entity = visitRepository.findById(body.get("data").get("id").asLong()).orElseThrow();
+        assertThat(entity.getRawCdrSb()).isEqualTo("18.1");
+        assertThat(entity.getCdrSb()).isEqualByComparingTo(new BigDecimal("18.10"));
+    }
+
+    /**
+     * MMSE=30.004 is above 30, but DECIMAL(5,2) rounds it to 30.00 at insert time.
+     * QC rules MUST fire on the original submitted value (stored in {@code raw_mmse}),
+     * not the rounded DECIMAL column, otherwise out-of-range values with extra precision
+     * slip through undetected.
+     *
+     * <p>This is the regression test for the "QC 漏检" bug: before the fix the QC engine
+     * read {@code visit.getMmse()} (the DECIMAL column) and saw 30.00 -> silent pass.
+     * After the fix it reads {@code raw_mmse} -> sees 30.004 -> anomaly fires.
+     */
+    @Test
+    void highPrecisionOutOfRangeScoreIsCaughtByQcBeforeDecimalRoundingHidesIt() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        Long[] ids = new Long[2]; // [0]=subjectId, [1]=visitId
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        tx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("DEMO-V-ROUNDING-HIDE");
+                ids[0] = subject.getId();
+
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 30.004, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
+
+        Visit entity = visitRepository.findById(visitId).orElseThrow();
+        assertThat(entity.getRawMmse())
+                .as("raw text must preserve the full precision")
+                .isEqualTo("30.004");
+        assertThat(entity.getMmse())
+                .as("DECIMAL(5,2) must round to 30.00")
+                .isEqualByComparingTo(new BigDecimal("30.00"));
+
+        QcAuditRecord qc = qcAuditRecordRepository.findTopByVisitIdOrderByCreatedAtDesc(visitId)
+                .orElseThrow(() -> new AssertionError("expected a QC record for visit " + visitId));
+        assertThat(qc.getStatus()).isEqualTo(QcAuditRecord.Status.PENDING);
+        assertThat(qc.getAbnormalItems())
+                .as("anomalies must reference the original 30.004, not the rounded 30.00")
+                .contains("30.004")
+                .contains("MMSE");
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
     }
 
     @Test
@@ -672,6 +834,139 @@ class VisitApiTest {
                 .andReturn());
 
         assertThat(body.get("errorCode").asText()).isEqualTo("UNAUTHENTICATED");
+    }
+
+    // ===================================================================
+    // Transaction rollback isolation tests
+    // ===================================================================
+
+    /**
+     * Main transaction rolls back → {@code AFTER_COMMIT} event is never dispatched because
+     * the commit phase was never reached. Subject, Visit and QC row must all be absent.
+     *
+     * <p>This is the negative proof for the event architecture: if the outer transaction
+     * aborts, QC must not fire — it would otherwise emit an audit row for a Visit that
+     * does not exist.
+     */
+    @Test
+    void mainTransactionRollsBackNeitherVisitNorQcCreated() throws Exception {
+        String subjectCode = "ROLLBACK-MAIN";
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            try {
+                seedSubject(subjectCode);
+                throw new RuntimeException("intentional rollback after seed — verify nothing persisted");
+            } catch (RuntimeException rethrow) {
+                throw rethrow;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        })).hasMessageContaining("intentional rollback");
+
+        assertThat(subjectRepository.findBySubjectCode(subjectCode)).isEmpty();
+        int qcRowsForThisCode = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM qc_audit_record q JOIN visit v ON q.visit_id = v.id " +
+                        "JOIN subject s ON v.subject_id = s.id WHERE s.subject_code = ?",
+                Integer.class, subjectCode);
+        assertThat(qcRowsForThisCode).as("rollback must leave zero QC rows").isEqualTo(0);
+    }
+
+    /**
+     * Visit is durably committed first (its own REQUIRES_NEW), and then a second
+     * REQUIRES_NEW transaction crashes. The Visit must still be present — the two
+     * transactions are on independent physical connections; one cannot poison the other.
+     *
+     * <p>This is the definitive isolation proof: {@code AFTER_COMMIT + REQUIRES_NEW} means
+     * the QC side lives in a completely separated lifecycle.
+     */
+    @Test
+    void visitSurvivesEvenWhenLaterRequiresNewCrashes() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        Long[] ids = new Long[2];
+        TransactionTemplate visitTx = new TransactionTemplate(txManager);
+        visitTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        visitTx.executeWithoutResult(status -> {
+            try {
+                Subject subject = seedSubject("SURVIVE-QC-CRASH");
+                ids[0] = subject.getId();
+                JsonNode created = bodyOf(mockMvc.perform(
+                                createVisit(subject.getId(), "BL", "2025-01-01", 25.0, null, null)
+                                        .header("X-Allow-OOR", "true")
+                                        .session(admin))
+                        .andExpect(status().isOk())
+                        .andReturn());
+                ids[1] = created.get("data").get("id").asLong();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Long visitId = ids[1];
+        assertThat(visitRepository.findById(visitId)).isPresent();
+
+        TransactionTemplate crashTx = new TransactionTemplate(txManager);
+        crashTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThatThrownBy(() -> crashTx.executeWithoutResult(status -> {
+            throw new RuntimeException("simulated REQUIRES_NEW crash on QC side");
+        })).hasMessageContaining("simulated REQUIRES_NEW crash");
+
+        assertThat(visitRepository.findById(visitId))
+                .as("Visit that was committed earlier must survive an unrelated REQUIRES_NEW crash")
+                .isPresent();
+
+        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
+        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
+        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+    }
+
+    /**
+     * DTO validation rejects MMSE=99 with no {@code X-Allow-OOR} header → HTTP 400.
+     * {@code VisitController} aborts the write entirely, so no row → no event → no QC.
+     *
+     * <p>This contrasts with {@link VisitApiTest#mmseNinetyNineWithoutHeaderIsRejectedAs400AndNoQcRecordCreated}
+     * at the API level and the {@link #mainTransactionRollsBackNeitherVisitNorQcCreated}
+     * at the transaction level. Together they prove: every path that aborts before commit
+     * also aborts the QC trigger.
+     */
+    @Test
+    void dtoValidationRejectionLeavesNoVisitAndNoQc() throws Exception {
+        MockHttpSession admin = login("admin");
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Long[] ids = new Long[2];
+        try {
+            tx.executeWithoutResult(status -> {
+                try {
+                    Subject subject = seedSubject("DTO-REJECT");
+                    ids[0] = subject.getId();
+                    JsonNode body = bodyOf(mockMvc.perform(
+                                    createVisit(subject.getId(), "BL", "2025-01-01", 99.0, null, null)
+                                            .session(admin))
+                            .andExpect(status().isBadRequest())
+                            .andReturn());
+                    assertThat(body.get("errorCode").asText()).isEqualTo("VALIDATION_ERROR");
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        } catch (RuntimeException ignored) {
+        }
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM visit WHERE subject_id = ? AND visit_code = ?",
+                Integer.class, ids[0], "BL"))
+                .as("rejected visit must not be persisted")
+                .isEqualTo(0);
+
+        if (ids[0] != null) {
+            jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+        }
     }
 
     // ===================================================================
