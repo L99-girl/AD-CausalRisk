@@ -396,6 +396,74 @@ class QcAuditApiTest {
                 .isEqualTo("原始分数已人工复核");
     }
 
+    /**
+     * P1 multi-role regression: PATIENT takes precedence over every other role.
+     * An account that carries BOTH PATIENT and RESEARCHER must NOT see abnormalItems
+     * or auditComment — even though RESEARCHER alone would grant full access.
+     *
+     * <p>This test mirrors the {@link SubjectAccessPolicy#canReadRawScores} contract
+     * where the PATIENT branch is checked first and short-circuits to {@code false}.
+     * Without the per-subject {@code canReadRawScores} call (i.e. the old all-or-nothing
+     * {@code AUDITOR_ROLES} check), this test would fail because RESEARCHER ∈ AUDITOR_ROLES.
+     */
+    @Test
+    void patientPlusResearcherMultiRoleListIsStillMasked() throws Exception {
+        Long patientId = userId("patient");
+        Long adminId = userId("admin");
+        Instant now = Instant.now();
+
+        jdbc.update(
+                "INSERT INTO user_role (user_id, role_id) "
+                        + "SELECT ?, r.id FROM sys_role r WHERE r.role_code = 'RESEARCHER'",
+                patientId);
+        try {
+            Subject subject = seedSubject("QC-PATIENT-RESEARCHER");
+
+            jdbc.update(
+                    "INSERT INTO qc_audit_record (subject_id, target_type, source_type, status, "
+                            + "auditor_id, abnormal_items, audit_comment, created_at, updated_at) "
+                            + "VALUES (?, 'VISIT', 'MANUAL_REVIEW', 'PENDING', ?, ?, ?, ?, ?)",
+                    subject.getId(), adminId,
+                    "[\"MMSE 得分 99 超出临床范围\"]",
+                    "需要重新录入，原始值疑似笔误",
+                    now, now);
+
+            jdbc.update(
+                    "INSERT INTO subject_permission (subject_id, user_id, permission_type) "
+                            + "VALUES (?, ?, 'VIEW')",
+                    subject.getId(), patientId);
+
+            MockHttpSession patientResearcher = login("patient");
+            JsonNode items = bodyOf(mockMvc.perform(get("/api/qc/list").session(patientResearcher))
+                    .andExpect(status().isOk())
+                    .andReturn()).get("data").get("items");
+
+            assertThat(items.size()).isEqualTo(1);
+            JsonNode masked = items.get(0);
+
+            assertThat(masked.get("status").asText()).isEqualTo("PENDING");
+            assertThat(masked.get("subjectCode").asText()).isEqualTo("QC-PATIENT-RESEARCHER");
+            assertThat(masked.get("abnormalItems").isNull())
+                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see abnormalItems");
+            assertThat(masked.get("auditComment").isNull())
+                    .as("P1 multi-role leak: PATIENT ∩ RESEARCHER must NOT see auditComment");
+
+            MockHttpSession admin = login("admin");
+            JsonNode adminItems = bodyOf(mockMvc.perform(get("/api/qc/list").session(admin))
+                    .andExpect(status().isOk())
+                    .andReturn()).get("data").get("items");
+            assertThat(adminItems.get(0).get("abnormalItems").asText())
+                    .isEqualTo("[\"MMSE 得分 99 超出临床范围\"]");
+            assertThat(adminItems.get(0).get("auditComment").asText())
+                    .isEqualTo("需要重新录入，原始值疑似笔误");
+        } finally {
+            jdbc.update(
+                    "DELETE FROM user_role WHERE user_id = ? "
+                            + "AND role_id = (SELECT id FROM sys_role WHERE role_code = 'RESEARCHER')",
+                    patientId);
+        }
+    }
+
     @Test
     void doctorListReturnsEmptyWhenNoGrantsAtAll() throws Exception {
         MockHttpSession doctor = login("doctor");

@@ -281,10 +281,10 @@ public class QcAuditService {
 
         List<QcListView> items = paged.getContent().stream().map(this::toView).toList();
 
-        boolean auditorRole = principal.roleCodes().stream().anyMatch(AUDITOR_ROLES::contains);
-        if (!auditorRole) {
-            items = items.stream().map(this::maskSensitiveFields).toList();
-        }
+        items = items.stream()
+                .map(view -> subjectAccessPolicy.canReadRawScores(principal, view.subjectId())
+                        ? view : maskSensitiveFields(view))
+                .toList();
 
         return new PageResult<>(items, safePage, safePageSize, paged.getTotalElements());
     }
