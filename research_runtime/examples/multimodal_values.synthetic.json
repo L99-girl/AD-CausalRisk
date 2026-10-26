@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "research-model-smoke-v1",
+  "purpose": "SYNTHETIC_ACCEPTANCE",
+  "specification": "multimodal_values",
+  "family": "logistic",
+  "dataVersion": "synthetic-example-v1",
+  "indexDate": "2020-01-02",
+  "predictionWindowMonths": 24,
+  "records": [
+    {
+      "subjectCode": "SYNTHETIC-EXAMPLE-001",
+      "features": {
+        "age_years": {
+          "value": 72,
+          "unit": "years",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "education_years": {
+          "value": 14,
+          "unit": "years",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "mmse": {
+          "value": 26,
+          "unit": "score",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "cdr_sb": {
+          "value": 1.5,
+          "unit": "score",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "cdr_global": {
+          "value": 0.5,
+          "unit": "score",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "adas__total13": {
+          "value": 18,
+          "unit": "score",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "faq__faqtotal": {
+          "value": 4,
+          "unit": "score",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "apoe4_count": {
+          "value": 1,
+          "unit": "count",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "mri_left_hippocampus_volume": {
+          "value": 3200,
+          "unit": "mm3",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        },
+        "mri_right_hippocampus_volume": {
+          "value": 3300,
+          "unit": "mm3",
+          "measuredDate": "2020-01-01",
+          "availableDate": null,
+          "source": "SYNTHETIC",
+          "qc": "SYNTHETIC"
+        }
+      }
+    }
+  ]
+}
