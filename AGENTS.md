@@ -3,9 +3,26 @@
 ## Read before implementing
 
 Read README.md, docs/Course_SRS_V3_2.md, docs/Integration_Contract.md,
-the applicable contracts/*.openapi.json and the README in the assigned module.
+docs/Research_Core_Principles.md, the applicable contracts/*.openapi.json and
+the README in the assigned module.
 Use docs/Design_Guide.md for role, persistence and page requirements.
 Inspect the current branch and existing code before creating or replacing files.
+
+## Research direction and completion
+
+- Follow [Research_Core_Principles](docs/Research_Core_Principles.md):
+  multi-source fusion -> individualized causal graph -> causal-guided warning
+  model -> individualized explanation. These are research goals, not completed claims.
+- Map every new task to one or more of those four links, or identify its bounded
+  supporting dependency; state the actual gap, reusable artifacts and acceptance endpoint.
+- A graph must affect actual model inputs or computation to count as graph-guided
+  prediction. Source links, prior arrows, prediction attribution, GAT, or the four
+  software stage names alone do not establish individual causal effects.
+- Keep completed fixed experiments closed, including negative findings. New unmet
+  research may proceed under a distinct question and existing authorization;
+  do not retrain merely to publish source or search for a positive graph result.
+- Keep research validation, software checks, model delivery, Java integration and
+  clinical evidence separate. Close each stage with evidence and one next task.
 
 ## Scope and ownership
 

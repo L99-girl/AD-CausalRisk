@@ -9,9 +9,15 @@
 
 AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为可追溯的工作流。Python 提供可独立运行的合成数据服务；Java 承担业务 API、权限与持久化；前端面向研究人员、医生和患者提供相应视图。
 
+研究主线固定为**多源数据融合 → 个体化因果图谱构建 → 因果引导的预警模型建立 → 个体化可解释性分析**。后续任务按[四环节研究与推进规范](docs/Research_Core_Principles.md)对应缺口、复用已有成果并设置验收终点；该目标不表示个体因果结构、图增益或临床用途已经成立。
+
+第2→3环节[固定三臂图预测研究](docs/Graph_Research_Execution.md)已完成54真实训练/模型交付，未确立固定先验增益；第4环节[图解释诊断](docs/Graph_Explanation_Results.md)已复用45外折模型完成数值重构/实际路径与敏感性验收。贡献顺序敏感，未建立严格个人因果或稳定/临床解释。
+
 **项目正在开发中。** 当前课程服务使用明确标记的合成数据与固定加性规则，输出用于教学和工程联调。排序分数不是经临床验证的个体患病概率，图谱箭头不代表已识别的因果或治疗效应。
 
 七变量三算法及固定遗传/横断MRI的离线训练与对照已有阶段交付；新模型尚未替换当前业务服务。研究完成范围、Git交付内容及Java如何取数调用Python，见[研究交付与接入说明](docs/Research_Progress_and_Integration.md)。
+
+可移植估计器、人月/CIF、已保存模型的离线合成验收，以及固定五外折/三内折训练与嵌套校准，见[研究模型Python接入准备](docs/Research_Model_Portability.md)与[运行说明](research_runtime/README.md)。该可选模块使用独立依赖，计算源码随本分支交付；历史队列构造、全部比较/解释流水线、新模型HTTP服务和Java业务联调继续单独验收。
 
 ## 核心能力
 
@@ -24,6 +30,8 @@ AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为
 ## 项目状态
 
 以下为当前分支的实现范围；完整验收条件以[课程需求](docs/Course_SRS_V3_2.md)为准。顶部徽章展示 `main` 分支的 CI，功能分支的检查结果请查看对应提交或 PR。
+
+Java/前端状态以已合并代码为准。2026-10-26核对时，[后端及业务前端PR #11](https://github.com/yanxiao07/AD-CausalRisk/pull/11)与[登录页PR #12](https://github.com/yanxiao07/AD-CausalRisk/pull/12)仍未合并；其中新增的质控和Vue工程不计入下表的已合并范围。两份PR同时修改前端工程文件，需要协调后再合并。
 
 | 模块 | 已有实现 | 后续工作 |
 | --- | --- | --- |
@@ -44,6 +52,7 @@ AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为
 | --- | --- |
 | Python 服务 | Python 3.11 或 3.12；运行时仅使用标准库 |
 | Python 测试 | 同一解释器安装 `requirements-dev.lock` |
+| 可选离线研究模块 | 独立环境安装`research_runtime/requirements.lock`；原生图模块使用`requirements.graph.lock`，不与课程环境混装 |
 | Java 后端 | JDK 21、Maven Wrapper；目标数据库 MySQL 8，自动测试使用 H2 |
 | Web 前端 | 工程与依赖尚待完善，当前没有可用的完整安装/构建流程 |
 
@@ -171,6 +180,24 @@ flowchart LR
 
 测试覆盖契约与 HTTP、阻断、版本、并发重放、缓存、融合来源、贡献重构、输出审查，以及合成研究工程工具的计算边界。测试不需要真实临床数据。
 
+### 可选离线研究模块
+
+课程测试和可选研究测试使用不同环境。表格与图模块分别使用独立依赖，不能在仅安装表格依赖的环境中发现整个研究测试目录。按专题选择：
+
+```powershell
+# 表格估计器、固定训练与嵌套校准
+py -3.11 -m venv .venv-research
+.venv-research/Scripts/python.exe -m pip install -r research_runtime/requirements.lock
+.venv-research/Scripts/python.exe -m unittest research_runtime.tests.test_runtime research_runtime.tests.test_training -v
+
+# 图模块另用独立CPU环境，保持原课程与表格环境
+py -3.11 -m venv .venv-research-graph
+.venv-research-graph/Scripts/python.exe -m pip install -r research_runtime/requirements.graph.lock
+.venv-research-graph/Scripts/python.exe -m unittest research_runtime.tests.test_graph research_runtime.tests.test_graph_native research_runtime.tests.test_graph_training research_runtime.tests.test_graph_explanation -v
+```
+
+上述研究测试包含人工数据构造拟合，不读取真实队列或权重。已有固定真实研究不因源码发布重训；源码交付复用既有训练验收，发布检查只运行课程回归、无优化图检查与兼容性构建，不重新训练真实模型。现有Python CI发现`tests/`，不自动覆盖可选研究模块。协议机器文件保留原始字节，阶段文档以交付状态说明区分历史与当前，最新完成项及唯一下一任务以[Python需求状态](docs/Python_Requirement_Status.md)为准。
+
 ### Java
 
 在 `backend/` 执行 `.\mvnw.cmd -B -ntp verify`（Windows PowerShell）或 `./mvnw -B -ntp verify`（Linux / macOS）。Linux 首次使用可先执行 `chmod +x mvnw`。启动所需 profile、数据库变量、迁移与未验证事项见[后端说明](backend/README.md)。H2 测试通过不代表 MySQL 8 部署已验收。
@@ -211,6 +238,7 @@ flowchart LR
 ├── tests/                # Python 与契约测试
 ├── docs/                 # 需求、设计、联调和专题说明
 ├── research_gateway/     # 可选研究接入适配
+├── research_runtime/     # 可选离线估计器、固定训练/校准与图计算源码；独立依赖
 ├── .github/              # CI 工作流与 PR 模板
 ├── CONTRIBUTING.md       # 协作流程
 └── AGENTS.md             # 编码助手约束
@@ -232,12 +260,13 @@ flowchart LR
 - [x] Python 合成四阶段服务、固定契约与请求/结果校验。
 - [x] CSV 预检、质量报告、原规则来源追溯及合成工程工具。
 - [x] Java 工程、迁移、认证、档案与访视基础接口。
-- [ ] Java 特征/导入/质控、持久化任务与实际 AgentClient。
+- [x] Java CSV预览/确认入库及导入幂等（已合并PR #8）。
+- [ ] Java 特征读取、质控、持久化任务与实际 AgentClient；PR #11质控仍待合并。
 - [ ] Web 完整工程、业务页面、四角色视图与交互测试。
 - [ ] 业务复核、随访、授权报告、审计与患者结果过滤。
 - [ ] MySQL、浏览器及跨服务故障/重启历史的端到端验收。
 
-研究算法与科学验收单独跟踪：RF/XGBoost/GAT 公平比较、真实多模态融合、学习边稳定性和跨方法解释等尚未全面验收。详见[Python覆盖与缺口](docs/Python_Requirement_Status.md)。
+研究算法与科学验收单独跟踪：[图模型解释](docs/Graph_Explanation_Results.md)固定任务已关闭复用，真实累计298基础/36校准。本地8084演示入口已按四环节收敛，实际浏览器视觉与交互验收仍未完成；该维护主机页面不包含在本仓库源码交付中。原表格12包和图22包分开，涉及图的选定测试用图锁环境。严格个人因果、SHAP/LIME、跨重训/独立/as-of/QC/临床及Java业务接通继续分别开放。
 
 ## 使用范围与许可
 
