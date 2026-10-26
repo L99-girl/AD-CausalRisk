@@ -1,0 +1,85 @@
+{
+  "scope": "Reusable estimator primitives and fixed nested calibration runner; not historical cohort reconstruction or complete historical experiments",
+  "sources": {
+    "adni_algorithm_candidates.py": {
+      "original_module": "adni_algorithm_candidates.py",
+      "original_sha256": "762b6a5d5e32403dfb246b08a53138ea33664f32822131f3439ed598675c32e0",
+      "retained_classes": [
+        "NotEstimable",
+        "StrictHazards"
+      ],
+      "class_AST_unchanged": true
+    },
+    "research_runtime/discrete.py": {
+      "original_module": "competing_risk_discrete.py",
+      "original_sha256": "f4cbf4f53026c09902156d1582d80164fd17ed9ac9e00b1c3ff14abd8da869af",
+      "original_module_byte_copy": false,
+      "original_text_unchanged": true
+    },
+    "research_runtime/estimators.py": {
+      "original_modules": [
+        "adni_algorithm_candidates.py",
+        "evaluate_adni_scale_inputs.py",
+        "train_adni_multimodal.py"
+      ],
+      "scope": "Fixed classifier parameters, numeric preprocessing, and availability-control transformation; no graph variants or experiment orchestrator",
+      "nine_constructor_parameter_sets_compared_with_originals": true
+    },
+    "research_runtime/evaluation.py": {
+      "original_functions": {
+        "train_adni_competing_exploratory.py": {
+          "sha256": "a586d68380922328cc31e4527c64565e621486d5b9e056830901984f7a0c3d06",
+          "functions": [
+            "censor_survival",
+            "horizon_ipcw_weights",
+            "horizon_metrics"
+          ],
+          "function_AST_unchanged": true
+        },
+        "evaluate_adni_v6_r2a_graph_interactions.py": {
+          "sha256": "cba3735f37f1ec7ddc80ed791b18f64037b4f6371db6364557442d21c2997c66",
+          "functions": [
+            "paired_interval",
+            "weighted_calibration"
+          ],
+          "function_AST_unchanged": true
+        },
+        "evaluate_adni_90d_nested_calibration.py": {
+          "sha256": "49800cfec763e5681a6e0d9f7a1f32b872f6a6468c3850f5bc22050e0debbcef",
+          "functions": [
+            "sigmoid",
+            "logit",
+            "recalibrate_cif"
+          ],
+          "function_AST_unchanged": true
+        },
+        "evaluate_adni_core_holdout.py": {
+          "sha256": "eee479e318c38bf51737a4c1edcbde43851d354ae6675c32ef3e8272ca8f56e6",
+          "functions": [
+            "calibration_description"
+          ],
+          "function_AST_unchanged": true
+        },
+        "train_adni_core_final.py": {
+          "sha256": "dadd1bb9760c54efc90d2c0104ded1c5e94f7b245cc7376f5368f4b49f5bb515",
+          "functions": [
+            "checked_inner",
+            "calibrator_parameters",
+            "calibrated_values"
+          ],
+          "function_AST_unchanged": true
+        }
+      },
+      "scope": "Exact numerical function ASTs, shared constants and independent imports"
+    },
+    "research_runtime/training.py": {
+      "original_modules": [
+        "train_adni_core_final.py",
+        "calibrate_adni_multimodal.py"
+      ],
+      "scope": "One portable fixed 5-outer/3-inner orchestrator using existing portable estimator/person-period/CIF and AST-preserved evaluation functions. Scratch and supplied-base calibration modes; synthetic-only CLI; no cohort readers or historical graph/interpretation runners.",
+      "new_artifact_schema": "research-fixed-nested-training-v1",
+      "historical_host_sources_modified": false
+    }
+  }
+}
