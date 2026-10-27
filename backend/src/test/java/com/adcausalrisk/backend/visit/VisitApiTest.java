@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.adcausalrisk.backend.contract.ContractSchemas;
@@ -27,6 +29,7 @@ import com.adcausalrisk.backend.visit.entity.Visit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -101,6 +104,40 @@ class VisitApiTest {
 
     @Autowired
     private PlatformTransactionManager txManager;
+
+    /**
+     * Subject codes whose rows a {@code REQUIRES_NEW} block really committed.
+     *
+     * <p>Those rows survive the enclosing {@code @Transactional} rollback, so a plain
+     * {@code jdbc.update("DELETE ...")} issued from inside the test method runs in the outer
+     * transaction and is undone together with it - the four leaked subjects that broke
+     * {@code SubjectApiTest} when the suite ran in a different order. The purge therefore has
+     * to run in its own committed transaction, which is what {@link #purgeReallyCommittedRows()}
+     * does after every test.
+     */
+    private final List<String> committedSubjectCodes = new ArrayList<>();
+
+    @AfterEach
+    void purgeReallyCommittedRows() {
+        if (committedSubjectCodes.isEmpty()) {
+            return;
+        }
+        TransactionTemplate cleanup = new TransactionTemplate(txManager);
+        cleanup.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        cleanup.executeWithoutResult(status -> {
+            for (String code : committedSubjectCodes) {
+                jdbc.update("DELETE FROM qc_audit_record WHERE visit_id IN"
+                        + " (SELECT id FROM visit WHERE subject_id IN"
+                        + " (SELECT id FROM subject WHERE subject_code = ?))", code);
+                jdbc.update("DELETE FROM subject_feature WHERE subject_id IN"
+                        + " (SELECT id FROM subject WHERE subject_code = ?)", code);
+                jdbc.update("DELETE FROM visit WHERE subject_id IN"
+                        + " (SELECT id FROM subject WHERE subject_code = ?)", code);
+                jdbc.update("DELETE FROM subject WHERE subject_code = ?", code);
+            }
+        });
+        committedSubjectCodes.clear();
+    }
 
     // ===================================================================
     // 1. POST /api/subjects/{subjectId}/visits - happy path
@@ -497,6 +534,7 @@ class VisitApiTest {
 
         tx.executeWithoutResult(status -> {
             try {
+                committedSubjectCodes.add("DEMO-V-MMSE-99-QC");
                 Subject subject = seedSubject("DEMO-V-MMSE-99-QC");
                 ids[0] = subject.getId();
 
@@ -525,9 +563,8 @@ class VisitApiTest {
         assertThat(qc.getAbnormalItems()).contains("99.0").contains("MMSE");
         assertThat(qc.getAuditorId()).isEqualTo(userId("admin"));
 
-        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
-        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
-        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+        // Cleanup is handled by purgeReallyCommittedRows(), which runs in its own committed
+        // transaction; a DELETE here would be rolled back with the test transaction.
     }
 
     @Test
@@ -574,6 +611,7 @@ class VisitApiTest {
 
         tx.executeWithoutResult(status -> {
             try {
+                committedSubjectCodes.add("DEMO-V-ROUNDING-HIDE");
                 Subject subject = seedSubject("DEMO-V-ROUNDING-HIDE");
                 ids[0] = subject.getId();
 
@@ -608,9 +646,7 @@ class VisitApiTest {
                 .contains("30.004")
                 .contains("MMSE");
 
-        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
-        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
-        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+        // Cleanup runs in purgeReallyCommittedRows(); see the note in the MMSE=99 test.
     }
 
     @Test
@@ -891,6 +927,7 @@ class VisitApiTest {
         visitTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         visitTx.executeWithoutResult(status -> {
             try {
+                committedSubjectCodes.add("SURVIVE-QC-CRASH");
                 Subject subject = seedSubject("SURVIVE-QC-CRASH");
                 ids[0] = subject.getId();
                 JsonNode created = bodyOf(mockMvc.perform(
@@ -918,9 +955,7 @@ class VisitApiTest {
                 .as("Visit that was committed earlier must survive an unrelated REQUIRES_NEW crash")
                 .isPresent();
 
-        jdbc.update("DELETE FROM qc_audit_record WHERE visit_id = ?", visitId);
-        jdbc.update("DELETE FROM visit WHERE id = ?", visitId);
-        jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
+        // Cleanup runs in purgeReallyCommittedRows(); see the note in the MMSE=99 test.
     }
 
     /**
@@ -943,6 +978,7 @@ class VisitApiTest {
         try {
             tx.executeWithoutResult(status -> {
                 try {
+                    committedSubjectCodes.add("DTO-REJECT");
                     Subject subject = seedSubject("DTO-REJECT");
                     ids[0] = subject.getId();
                     JsonNode body = bodyOf(mockMvc.perform(
@@ -964,9 +1000,7 @@ class VisitApiTest {
                 .as("rejected visit must not be persisted")
                 .isEqualTo(0);
 
-        if (ids[0] != null) {
-            jdbc.update("DELETE FROM subject WHERE id = ?", ids[0]);
-        }
+        // The subject itself was committed by REQUIRES_NEW; purgeReallyCommittedRows() removes it.
     }
 
     // ===================================================================

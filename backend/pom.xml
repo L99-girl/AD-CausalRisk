@@ -148,6 +148,14 @@
                         rather than on the developer's hardware.
           -->
           <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xmx1g</argLine>
+          <!--
+            Test classes share one in-memory H2 database, so the execution order decides
+            which committed rows a later class can see. The default "filesystem" order
+            depends on how the checkout wrote the files, which is why the same commit
+            passed locally and failed on CI. alphabetical makes the order identical on
+            every machine, so an order-dependent test cannot pass by luck.
+          -->
+          <runOrder>alphabetical</runOrder>
         </configuration>
       </plugin>
     </plugins>
