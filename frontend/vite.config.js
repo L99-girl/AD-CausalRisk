@@ -16,6 +16,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true
       }
-    }
+    },
+    watch: {
+      // Editors and formatters that save through short-lived dot-directories inside
+      // src/ make chokidar fail with EBUSY on Windows, which kills the dev server.
+      ignored: ['**/.*.tmpdir/**', '**/*.tmp'],
+    },
   }
 })
