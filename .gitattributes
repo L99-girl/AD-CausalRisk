@@ -10,3 +10,12 @@
 # Preserve them in Git checkouts AND source archives while retaining readable diffs.
 research_runtime/graph_native.py -text diff
 research_runtime/graph_protocol.json -text diff
+
+# Grouped study plans also bind these source bytes; keep portable archive identity.
+research_runtime/group_shapley.py -text diff
+research_runtime/group_lime.py -text diff
+research_runtime/grouped_xai_study.py -text diff
+research_runtime/table_explanation.py -text diff
+research_runtime/table_xai_study.py -text diff
+research_runtime/input_admission.py -text diff
+research_runtime/inmemory_inference.py -text diff
