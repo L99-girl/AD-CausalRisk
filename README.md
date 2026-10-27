@@ -19,6 +19,8 @@ AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为
 
 可移植估计器、人月/CIF、已保存模型的离线合成验收，以及固定五外折/三内折训练与嵌套校准，见[研究模型Python接入准备](docs/Research_Model_Portability.md)与[运行说明](research_runtime/README.md)。该可选模块使用独立依赖，计算源码随本分支交付；历史队列构造、全部比较/解释流水线、新模型HTTP服务和Java业务联调继续单独验收。
 
+本分支新增[分组Shapley/LIME及表格编排](docs/Table_Grouped_Study_Execution.md)、[输入声明一致性校验](docs/Real_Input_Admission.md)与[单次内存CIF调用](docs/InMemory_Research_Inference.md)。方法、构造验收和真实研究结论分别报告；不加入受控数据/权重，不改变共享HTTP或默认模型。
+
 ## 核心能力
 
 - **资料与质量**：三表 CSV 预检、档案关联、日期与单位检查、缺失/重复/冲突定位，以及严重问题阻断。
@@ -31,13 +33,13 @@ AD-CausalRisk 将资料整理、质量检查、图谱、排序和解释组织为
 
 以下为当前分支的实现范围；完整验收条件以[课程需求](docs/Course_SRS_V3_2.md)为准。顶部徽章展示 `main` 分支的 CI，功能分支的检查结果请查看对应提交或 PR。
 
-Java/前端状态以已合并代码为准。2026-10-26核对时，[后端及业务前端PR #11](https://github.com/yanxiao07/AD-CausalRisk/pull/11)与[登录页PR #12](https://github.com/yanxiao07/AD-CausalRisk/pull/12)仍未合并；其中新增的质控和Vue工程不计入下表的已合并范围。两份PR同时修改前端工程文件，需要协调后再合并。
+2026-10-27本分支从main `94f9789`建立；[Python研究源码PR #13](https://github.com/yanxiao07/AD-CausalRisk/pull/13)及[后端/业务前端PR #11](https://github.com/yanxiao07/AD-CausalRisk/pull/11)已合并。[登录页PR #12](https://github.com/yanxiao07/AD-CausalRisk/pull/12)仍开放且与当前main冲突；本分支不修改其前端实现。业务联合验收依然以对应模块实际证据为准。
 
 | 模块 | 已有实现 | 后续工作 |
 | --- | --- | --- |
 | Python | 合成四阶段服务、输入与结果校验、质量阻断、融合/图/贡献追溯、客户端和工程工具 | 按实际 Java 接入反馈完成联调；真实研究模型与临床验证单独验收 |
 | Java 后端 | Spring Boot 工程、数据库迁移、认证、档案、访视及 CSV 预览/确认入库；目标契约 22 个操作中已实现 10 个，另实现质控（QC）扩展模块（审核队列列表、审核决策提交、状态统计）| 特征读取、持久化任务、AgentClient、结果、复核、随访、报告和审计等，详见[后端说明](backend/README.md) |
-| Web 前端 | 开发说明和布局片段 | 可安装构建的完整应用、会话/路由、业务页面、权限状态与交互测试，详见[前端说明](frontend/README.md) |
+| Web 前端 | main已包含PR #11引入的Vue工程及部分认证、档案/导入等页面 | 完整业务页面、对象权限状态、实际联调与交互验收仍需完成；登录页PR #12尚未合并，详见[前端说明](frontend/README.md) |
 | 全链路 | 契约、合成样例和分模块检查 | 实际 Java → Python 调用、业务保存、患者字段过滤及重启历史查询的联合验收 |
 
 接口目标、数据库表或页面片段的存在不表示对应业务已完成。Python 工程测试也不替代 Java、MySQL 或浏览器端到端验收。
