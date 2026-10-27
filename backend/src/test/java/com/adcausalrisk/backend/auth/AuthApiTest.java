@@ -27,6 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * End-to-end tests for FR-AUTH-01: the real {@code SecurityFilterChain}, the real BCrypt
@@ -44,6 +45,7 @@ import org.springframework.test.web.servlet.RequestBuilder;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Transactional
 class AuthApiTest {
 
     /** Documented synthetic demo password; kept in sync with V2 and backend/README.md. */
