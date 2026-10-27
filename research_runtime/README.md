@@ -1,5 +1,7 @@
 # 离线研究计算、固定训练与图模型
 
+新增[分组预测归因](../docs/Grouped_Prediction_Attribution.md)、[表格归因编排](../docs/Table_Grouped_Study_Execution.md)、[研究输入一致性门槛](../docs/Real_Input_Admission.md)与[单次内存CIF适配](../docs/InMemory_Research_Inference.md)。这些API接收宿主独立核实的内存输入和模型，不读取临床文件、不加载真实参数、不替换默认模型；元数据一致不授予预测许可，也不认证来源/临床/因果。图固定归因的结果和参考/局部忠实度限制见[既有图研究结果](../docs/Grouped_XAI_Results.md)。
+
 本目录提供表格估计器、人月展开、两原因24月CIF、固定训练/嵌套校准，以及三臂图预测和折外解释计算。公开CLI只接受明确标记的人工合成快照；图API接收调用方已合格的内存队列。没有临床源表读取器、Java业务服务或默认模型切换。
 
 这里没有临床源表读取器。固定五外折/三内折训练和嵌套校准现由`training.py`独立提供，数值评价由`evaluation.py`复用原函数；历史队列构造、全部比较和解释流水线没有整体迁移。原固定真实研究任务已完成；后续复用受控模型，无需为整理源码重新训练。源码本地可用与Git发布、参数交付、服务部署分别记录。
@@ -102,3 +104,22 @@ Python API：`run_nested(frame, output, specification, families, splits=..., exi
 剩余接入工作：版本化真实输入契约与字段映射、来源/QC/历史可获得性政策、受控参数交付及目标机部署、Java AgentClient/权限/任务和结果持久化的联合验收。共享契约变化先协调后实施。固定表格训练/校准、三臂图研究和图解释诊断均已阶段完成；历史队列重建、全部表格比较/解释并未整体迁移。当前CLI仍输出原始CIF，新训练产物不自动部署。严格个人因果、SHAP/LIME、跨重训/独立和临床验证继续开放，当前执行顺序取[Python需求状态](../docs/Python_Requirement_Status.md)。
 
 输出为合成输入下的研究模型计算值，`clinicalUse=false`；工程一致性不能证明临床概率精度、算法优越或个体因果效应。
+
+## 本次分组归因与输入适配检查
+
+在上述固定CPU图环境运行全部新增方法/适配/编排检查：
+
+```powershell
+.venv-research-graph/Scripts/python.exe -m unittest research_runtime.tests.test_group_shapley research_runtime.tests.test_group_lime research_runtime.tests.test_group_xai_admission research_runtime.tests.test_group_xai_dtypes research_runtime.tests.test_grouped_xai_study research_runtime.tests.test_table_explanation research_runtime.tests.test_table_xai_study research_runtime.tests.test_input_admission research_runtime.tests.test_input_admission_compatibility research_runtime.tests.test_inmemory_inference research_runtime.tests.test_inmemory_cif_bridge -v
+```
+
+本次106项检查通过；在外层禁止所有风险/预处理fit、参数加载、网络和受控路径读取，实际1023次人工参数CIF、34次局部替代回归，25.282秒。局部回归与风险模型训练分开计数。完整60/1200编排矩阵使用模拟归因，不代表1200次实际回归或真实研究；原生图的人工状态由现有构造辅助函数赋值，不调用优化器。
+
+输入一致性校验模块只用标准库。两个独立构造示例：
+
+```powershell
+.venv-research-graph/Scripts/python.exe -S -B -m research_runtime.examples.input_admission_constructed
+.venv-research-graph/Scripts/python.exe -B -m research_runtime.examples.inmemory_constructed
+```
+
+图/完整表格研究编排复用既有图聚合模块，因此使用图环境；单独表格参考/归因适配不依赖Torch。Linux、其他Python版本及未验收机器须另行核对，现有课程CI不会自动运行上述可选研究检查。真实输入/参数/私有折、宿主单次读取封装及内部授权不随源码发布；本地构造通过不等于真实业务接通或临床验证。
