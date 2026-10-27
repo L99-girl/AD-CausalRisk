@@ -48,6 +48,11 @@
           </a-menu-item>
         </a-sub-menu>
 
+        <a-menu-item key="qc" v-permission="['ADMIN', 'RESEARCHER']">
+          <icon-check-circle />
+          <template #title>质控审核</template>
+        </a-menu-item>
+
         <a-menu-item key="followup" disabled>
           <icon-clock-circle />
           <template #title>随访管理</template>
@@ -157,6 +162,7 @@ const user = computed(() => ({
 const menuMap = {
   '/dashboard':  ['首页'],
   '/subjects':   ['首页', '档案管理', '档案列表'],
+  '/qc':         ['首页', '质控审核'],
   '/followup':   ['首页', '随访管理'],
   '/settings':   ['首页', '系统设置']
 }
@@ -167,6 +173,7 @@ const breadcrumbs = computed(() => {
 
 const selectedKeys = computed(() => {
   if (route.path.startsWith('/subjects')) return ['subject-list']
+  if (route.path === '/qc') return ['qc']
   return [route.path.slice(1) || 'dashboard']
 })
 
@@ -178,7 +185,8 @@ const openKeys = computed(() => {
 function onMenuClick(key) {
   const map = {
     'dashboard': '/dashboard',
-    'subject-list': '/subjects'
+    'subject-list': '/subjects',
+    'qc': '/qc'
   }
   if (map[key] && map[key] !== route.path) {
     router.push(map[key])

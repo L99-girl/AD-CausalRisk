@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import ArcoVue from '@arco-design/web-vue'
 import '@arco-design/web-vue/dist/arco.css'
+import './assets/main.css' // 3D 登录页全局样式（队友代码），.screen/.brain-stage/.explore-pill 等作用范围是全局
 import App from './App.vue'
 import router from './router'
 import { vPermission } from './directives/permission.js'

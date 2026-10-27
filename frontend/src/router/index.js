@@ -7,7 +7,8 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: () => import('../views/Login.vue'),
+    // 3D 炫酷登录页（队友代码）；旧版 Login.vue 保留备用，稳定后再删
+    component: () => import('../views/LoginView.vue'),
     meta: { title: '登录', noLayout: true }
   },
   {
@@ -44,8 +45,38 @@ const routes = [
         name: 'SubjectImport',
         component: () => import('../views/SubjectImport.vue'),
         meta: { title: 'CSV 导入' }
+      },
+      {
+        path: 'qc',
+        name: 'QcAuditList',
+        component: () => import('../views/qc/QcAuditList.vue'),
+        meta: { title: '质控审核', keepAlive: true, roles: ['ADMIN', 'RESEARCHER'] }
       }
     ]
+  },
+  {
+    path: '/doctor',
+    name: 'DoctorHome',
+    component: () => import('../views/RolePlaceholder.vue'),
+    meta: { title: '医生工作台', role: '医生', noLayout: true }
+  },
+  {
+    path: '/researcher',
+    name: 'ResearcherHome',
+    component: () => import('../views/RolePlaceholder.vue'),
+    meta: { title: '科研人员工作台', role: '科研人员', noLayout: true }
+  },
+  {
+    path: '/admin',
+    name: 'AdminHome',
+    component: () => import('../views/RolePlaceholder.vue'),
+    meta: { title: '管理员工作台', role: '管理员', noLayout: true }
+  },
+  {
+    path: '/patient',
+    name: 'PatientHome',
+    component: () => import('../views/RolePlaceholder.vue'),
+    meta: { title: '患者工作台', role: '患者', noLayout: true }
   },
   {
     path: '/:pathMatch(.*)*',
