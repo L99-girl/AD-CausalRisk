@@ -2,6 +2,7 @@ package com.adcausalrisk.backend.subject;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.adcausalrisk.backend.common.Envelope;
 import com.adcausalrisk.backend.common.PageResult;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
+import com.adcausalrisk.backend.subject.dto.FeatureCreateRequest;
+import com.adcausalrisk.backend.subject.dto.FeatureResultView;
 import com.adcausalrisk.backend.subject.dto.SubjectCreateRequest;
 import com.adcausalrisk.backend.subject.dto.SubjectDetailView;
 import com.adcausalrisk.backend.subject.dto.SubjectView;
@@ -35,9 +38,11 @@ import jakarta.validation.Valid;
 public class SubjectController {
 
     private final SubjectService subjectService;
+    private final FeatureService featureService;
 
-    public SubjectController(SubjectService subjectService) {
+    public SubjectController(SubjectService subjectService, FeatureService featureService) {
         this.subjectService = subjectService;
+        this.featureService = featureService;
     }
 
     /**
@@ -80,5 +85,29 @@ public class SubjectController {
                                               Authentication authentication) {
         AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
         return Envelope.success(subjectService.getSubjectDetail(subjectId, principal));
+    }
+
+    /**
+     * {@code PATCH /api/subjects/{subjectId}} - rename / archive a subject.
+     *
+     * <p>The contract reuses the {@code SubjectCreate} body, so {@code subjectCode} must be sent;
+     * the service rejects a value that differs from the stored one instead of renaming the
+     * identifier other modules key on.
+     */
+    @PatchMapping("/{subjectId}")
+    public Envelope<SubjectView> update(@PathVariable Long subjectId,
+                                        @Valid @RequestBody SubjectCreateRequest request,
+                                        Authentication authentication) {
+        AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
+        return Envelope.success(subjectService.updateSubject(subjectId, request, principal));
+    }
+
+    /** {@code POST /api/subjects/{subjectId}/features} - one feature row per call. */
+    @PostMapping("/{subjectId}/features")
+    public Envelope<FeatureResultView> createFeature(@PathVariable Long subjectId,
+                                                     @Valid @RequestBody FeatureCreateRequest request,
+                                                     Authentication authentication) {
+        AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
+        return Envelope.success(featureService.create(subjectId, request, principal));
     }
 }

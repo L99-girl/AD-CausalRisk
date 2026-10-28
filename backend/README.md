@@ -16,7 +16,7 @@
 
 ## 1. 已实现范围
 
-共同契约共 **22 个操作**，其中**契约内已实现 10 个**（认证 3 + 档案 3 + 访视 1 + 导入 3），另有 **3 个扩展操作**（质控，超出契约 22 个路径范围，见下）。
+共同契约共 **22 个操作，全部已实现**（认证 3 + 档案 4 + 访视 1 + 特征 1 + 质控检查 1 + 导入 3 + 评估任务 2 + 评估结果 1 + 人工复核 1 + 随访 3 + 报告 1 + 审计 1）。另有 **3 个扩展操作**（质控审核工作流，超出契约 22 个操作的范围，见下）。
 
 ### 第一组：认证（auth）
 | 操作 | 路径 | 说明 |
@@ -31,6 +31,7 @@
 | `getApiSubjects` | `GET /api/subjects` | 分页查询档案列表，先按权限过滤再分页 |
 | `postApiSubjects` | `POST /api/subjects` | 创建档案（ADMIN / RESEARCHER） |
 | `getApiSubjectssubjectId` | `GET /api/subjects/{subjectId}` | 查询档案详情；`visits` 来自 `visit` 表，`features` 仍为空数组 |
+| `patchApiSubjectssubjectId` | `PATCH /api/subjects/{subjectId}` | 改别名 / 归档；请求体复用 `SubjectCreate`，`subjectCode` 必须原样回传（不可改，改了是 400）；ADMIN/RESEARCHER 或持 `MANAGE` 授权的 DOCTOR |
 
 ### 第三组：访视（visit）
 | 操作 | 路径 | 说明 |
@@ -63,9 +64,61 @@
 
 **患者字段过滤与原始分数**：判定集中在 `SubjectAccessPolicy.canReadRawScores(principal, subjectId)`，按角色且**按档案**决定：ADMIN / RESEARCHER 直接可读；DOCTOR 必须在该档案上持有 `VIEW` 或 `MANAGE`；PATIENT 与任何未知角色一律不可读。**PATIENT 优先级最高**：账号只要带 PATIENT 角色，即使同时拥有 RESEARCHER 或 ADMIN 也一律不可读。因此"只被授予 `SUMMARY_READ`"的医生同样看不到原始分数——这是防止 `SUMMARY_READ` 被升级成整份读取的关键。不可读时详情响应中的 `visits` 为空数组。
 
+**复核 / 随访 / 审计 / 报告的权限口径**（与档案、访视分开判定）：复核要求 `canReadRawScores`（ADMIN / RESEARCHER，或在该档案上持有 `VIEW`/`MANAGE` 的 DOCTOR；带 PATIENT 一律 403）；随访的创建、修改、查询统一使用 `canView`（DOCTOR 没有 `subject_permission` 授权即 403）；审计列表仅 `ADMIN`；报告复用评估的读权限。评估任务的创建沿用 `canCreate`，并对目标档案追加 `canView` 校验。
+
 访视的分数缺失时按 `null` 保存并返回，**绝不补 0**；范围 `mmse`/`moca` 0–30、`cdrSb` 0–18。契约允许任意精度，**接口永远返回提交的数值**：迁移 `V4` 新增 `raw_mmse`/`raw_moca`/`raw_cdr_sb`（`VARCHAR(64)`），保存的是**提交数值的规范化文本**（`BigDecimal.toString()`：`27.555` 原样保留，但 `07.50` 存为 `7.50`、`1e1` 存为 `1E+1`、`+1` 存为 `1`、`-0.0` 存为 `0.0` —— **数值精度不丢，字面量不保留**），`mmse`/`moca`/`cdr_sb`（`DECIMAL(5,2)`）降级为**派生/展示列**（`round(raw, 2)`），只供图表、列表与 SQL 统计使用，不参与评分。原文与派生值在实体构造函数里一次算出，因此不可能只写一半。超出 `VARCHAR(64)` 能表示的精度由 `@Digits(integer = 2, fraction = 61)` 以 400 拒绝，而不是让数据库报错或静默截断。
 
 **数据导入（`POST /api/import-jobs` / `GET /api/import-jobs/{jobId}` / `POST /api/import-jobs/{jobId}/commit`）**：契约的请求体只有 `file`，没有 `importType`，因此服务端**用精确表头判定导入哪张表**（subjects / visits / features 与 fixtures 表头逐字一致，不猜列名、不重排）。预览阶段只做**单表可判定的规则**：UTF-8（容忍单个表首 BOM）、**空单元格=缺失（不是 0；访视分数与 `featureValue` 同理，空特征值合法地存为 `null`）**、`null`/`NaN`/`Infinity`/布尔文本视为非法数值、数值范围与精度、APOE 字面整数 0/1/2、MRI ∈ [0,1] 与单位、DEMO 编号、alias 长度（纯空白或零宽字符视为空）、档案内 `visitCode` 唯一且**不能是纯空白/零宽字符**（与创建 API 的 `@NotBlank` 一致）、**所有日期字段都必须是严格 `yyyy-MM-dd` 的过去或今天日期**（`+02025-01-01` 这类 ISO 扩展年份、`2025-1-1`、带空格等一律按格式错误拒绝；未来日期与年份 ≤ 0 同样拒绝；`visitDate` 与 `recordedAt` 同规则；"今天"按 `Asia/Shanghai` 的业务日判定，见 `ClockConfig`，不随宿主机时区漂移）、30000 字节与逐表行数上限，以及**每档案 100 访视 / 500 特征**（超出的行按行级错误报出，不整批失败）。**只有表头没有数据行**的文件返回 400，而不是一个永远无法入库的 `BLOCKED` 任务。**跨表质量规则（24 个月窗口、索引日多访视、同日特征冲突）不在 Java 侧实现**，属 Python 预检职责。预览通过的行**不立即入库**：原始 CSV 文本存入 `data_import_job.preview_csv`，`commit` 时重新解析同一份字节再插入，并比较**合格行集合的 SHA-256 摘要**（`preview_digest`，V6；逐字段**长度前缀**编码，字段里含 `|` 也不会产生歧义）：数量不一致或**行集不一致**都返回 400（"数据在预览后已变化，请重新预览"），因此"同数量换行"也无法绕过。`BLOCKED` 任务在创建时即清空 `preview_csv`，不保留上传原文；commit 成功时同样清空。`commit` 读取任务时持有**行级写锁**（`findByIdForUpdate`），因此两个并发提交不会重复插入（特征表没有唯一约束，不加锁会静默插入两份）；入库时的任何数据库约束冲突都映射为 400，绝不以 500 结束。**`commit` 会重新校验导入权限**：预览后账号被降权（如 RESEARCHER → PATIENT）时，即使仍是任务创建者也会得到 403——所有权不等于写权限。**降权后仅禁止 commit（写操作），`GET`（只读历史）依然可用**：读取自己的统计与错误明细没有泄露风险，这是明确的产品约定。`validRows == 0` 的任务是 `BLOCKED`，不可入库；commit 失败会回滚并保留 `preview_csv`，可以直接重试。`Idempotency-Key` 校验为 **1–100 字符**并记录在 `idempotency_record`（`UNIQUE (user_id, operation, idempotency_key)`）：同 key 同内容返回原任务，同 key 不同内容返回 400，并发重试靠唯一约束兜底并重放赢家。`errors` 最多返回 200 条（契约没有 truncated 字段），`totalRows/validRows/invalidRows` 始终是完整计数。
+
+### 第五组：评估任务与结果（assessment）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiAssessment-tasks` | `POST /api/assessment-tasks` | 幂等创建（`Idempotency-Key` 1–100）；`PENDING` → 调 Python → `COMPLETED`/`BLOCKED`/`FAILED` |
+| `getApiAssessment-taskstaskId` | `GET /api/assessment-tasks/{taskId}` | 任务状态与 `stages`（实测耗时，不伪造进度） |
+| `getApiAssessmentsassessmentId` | `GET /api/assessments/{assessmentId}` | 结果详情；PATIENT 直接 403（未实现 `PatientAssessmentSummary`） |
+
+事务边界：`PENDING` 与终态各一个 `REQUIRES_NEW` 短事务，中间夹 Agent 的 HTTP 调用，**等待期间不占数据库连接**。任何异常（包括非 `BusinessException`）都先落 `FAILED` 再抛，任务不会永远卡在 PENDING。同一 `Idempotency-Key` 并发时，输家**重放赢家的任务**而不是再跑一次 Python，因此不会撞 `uq_risk_assessment_task`。`BLOCKED` 表示 `riskScore=null`、`riskLevel=UNAVAILABLE`，绝不用 0 或插值补分。
+
+### 第六组：人工复核（review）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiAssessmentsReviewassessmentId` | `POST /api/assessments/{assessmentId}/review` | 记录 `ACKNOWLEDGED` / `NEEDS_DATA` / `REJECTED`，并把 `risk_assessment.review_status` 同步为同一状态 |
+| （扩展，不在契约内） | `GET /api/assessments/{assessmentId}/reviews` | 复核历史，倒序 |
+
+注意路径参数是**评估 id**（`risk_assessment.id`）而不是任务 id：复核挂在结果上，`assessment_review.assessment_id` 的外键也指向它。
+
+### 第七组：随访（follow-up）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiFollow-ups` | `POST /api/follow-ups` | 创建，初始状态 `PLANNED` |
+| `patchApiFollow-upsfollowUpId` | `PATCH /api/follow-ups/{followUpId}` | 改期 / 完成 / 取消；非法状态 400；**不存在的 id 是 400**（契约未声明 404） |
+| `getApiSubjectsFollow-upssubjectId` | `GET /api/subjects/{subjectId}/follow-ups` | 按计划时间升序 |
+
+### 第八组：报告（report）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `getApiReportsassessmentId` | `GET /api/reports/{assessmentId}` | 报告视图；契约当前的响应体就是 `Assessment`，HTML/PDF 导出待契约 PR |
+
+### 第九组：审计（audit）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `getApiAudit-logs` | `GET /api/audit-logs` | 仅 `ADMIN`；按发生时间倒序，**无分页**（契约的 `data` 是数组而非分页结构） |
+
+`@AuditLog(eventType, summary)` + `AuditLogAspect` 在目标方法**成功返回后**写 `audit_log`：写入走独立事务（`REQUIRES_NEW`），失败只记日志、不回滚业务。目前只有复核接口接入了注解，**登录成功/失败仍未写审计**。
+
+### 第十组：特征与质控检查（契约补齐）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiSubjectsFeaturessubjectId` | `POST /api/subjects/{subjectId}/features` | 单条 `Feature` 入库（`subject_feature` 无 JPA 实体，用 JDBC 插入并取回自增 id）；APOE 必须是 `count` + 整数 0–2，MRI 必须是 `normalized` + [0,1]，`featureValue` 可为 null；仅 ADMIN/RESEARCHER |
+| `postApiSubjectsQuality-checkssubjectId` | `POST /api/subjects/{subjectId}/quality-checks` | 返回 `QualityCheck`：无访视 → `BLOCKED`，有待审质控记录 → `WARN`，否则 `PASS`；`ruleVersion=qc-rules-demo-v1`；仅 ADMIN/RESEARCHER |
+
+**质控检查尚未持久化**：V1 没有 `quality_check` 表，因此该端点每次实时计算并返回契约结构，`id` 取 `subjectId`（同一档案多次调用稳定）。要"保存"历史记录，需要新增一条迁移 + 实体（见第 13 节）。
 
 另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、CSV 数据导入（预览 + 确认入库）、后端 CI。
 
@@ -158,7 +211,7 @@ cd backend
 ./mvnw -B -ntp verify
 ```
 
-测试使用 `test` profile 的 H2（`MODE=MySQL`），**不需要 MySQL、不需要 Docker**。测试之间用 `@Transactional` 回滚隔离，而不是删表重建。
+测试使用 `test` profile 的 H2（`MODE=MySQL`），**不需要 MySQL、不需要 Docker**。多数测试类用 `@Transactional` 回滚隔离，而不是删表重建；**4 个类刻意不使用**（`ImportJobCommitConcurrencyTest`、`AssessmentApiTest`、`AssessmentReviewApiTest`、`FollowUpApiTest`），因为它们要验证 `REQUIRES_NEW` 事务真实提交，改为 fixture 先提交、`@AfterEach` 按外键顺序清理。
 
 | 测试类 | 用例数 | 覆盖 |
 | --- | --- | --- |
@@ -172,9 +225,15 @@ cd backend
 | `ImportJobApiTest` | 29 | 预览三表、缺 `Idempotency-Key` / 缺 `file` / 错误 Content-Type / 超限 / **Key 超长或为空** / **只有表头** 均受控 4xx、幂等重放与同 key 换内容 400、commit 入库（档案/访视/特征）、**空特征值入库为 SQL NULL**、重复 commit 400、**预览后被降权为 PATIENT 的创建者 commit 返回 403 且不写库**、`BLOCKED` 400 且**不保留上传原文**、预览后数据变化 400、**同数量换行被摘要拦下**、**无摘要的旧任务退回数量比较**、`errors` 截断到 200 而计数完整、读权限（创建者 vs 非 ADMIN）、DOCTOR/PATIENT 403、未登录 401、契约 schema 校验 |
 | `ImportJobServiceTest` | 13 | 纯 Mockito：幂等唯一约束竞态的失败方**重放赢家**而不是 500、同 key 不同内容被拒、commit 重放计数不一致被拒且不写库、**commit 走加锁查询**、**降权后的拥有者仍被拒（所有权不等于写权限）**、已 `COMMITTED` 的任务被拒、**无记录的非唯一键冲突降级为 400**、Key 长度越界在触库前被拒、**行集变化（同数量）被摘要拦下**、**无摘要时退回数量比较**、**"今天"取自配置时区的 Clock**、**重放时 `result_id` 为空是 400 而非 500**、**重放时拒绝他人的任务** |
 | `ImportJobCommitConcurrencyTest` | 1 | 非事务集成测试：两个线程同时 commit 同一任务，**只有一个成功、另一个得到业务异常**，特征行只插入一次（不依赖唯一约束的那张表） |
+| `AssessmentApiTest` | 7 | 非事务集成测试：400 而非 404（不存在的评估结果）、`predictionWindowMonths` 5/61 被拒、DOCTOR 创建 403、完整闭环（POST → COMPLETED + `assessmentId`，GET 回读 `riskScore` 与 `reviewStatus`）、**同 key 双线程并发只产生 1 个任务且无 5xx**、**报告接口 `GET /api/reports/{assessmentId}`：ADMIN 200 且过契约 schema，PATIENT 403 且响应无 data** |
+| `AssessmentServiceTest` | 5 | 纯 Mockito：非 `BusinessException` 的客户端异常 → 任务落 `FAILED` 而非卡 PENDING、序列化失败 → `FAILED` 且不写结果行、`" key "` 与 `"key"` 命中同一幂等域、库里 `riskScore=2.0` 的旧结果被 `parse` 拦下、`canView` 为假时 403 且不落库 |
+| `AssessmentReviewApiTest` | 3 | 非事务：`ACKNOWLEDGED` 后查库确认 `review_status` 已提交、`@AuditLog` 真实写入 `audit_log`（不 mock `AuditService`）、PATIENT 复核 403 且不改数据、非 ADMIN 读审计 403 而 ADMIN 200 |
+| `FollowUpApiTest` | 6 | 非事务：创建即 `PLANNED`、`PATCH` → `COMPLETED`/`CANCELLED` 查库确认、非法状态 400 且不改数据、不存在的 id 是 400（契约无 404）、无 `canView` 的 DOCTOR 在创建/修改/查询三个入口都是 403 |
 | `GlobalExceptionHandlerTest` | 3 | `DataIntegrityViolationException` → 400（commit 期间数据冲突不得变成 500）；**行锁等待超时 / 死锁（`CannotAcquireLockException` / `PessimisticLockingFailureException`）→ 400"操作冲突，请稍后重试"**（文案中性，因为该 handler 对所有模块生效）；**无法解析的 multipart → 400，且 `MaxUploadSizeExceededException` 仍走更具体的"超过大小限制"文案** |
 
-总计 **190 个测试**，全部在 H2（`MODE=MySQL`）上通过。
+| `RemainingEndpointsApiTest` | 8 | `PATCH` 档案改名/归档 + `subjectCode` 不可改 + DOCTOR 无授权 403；特征单条入库、APOE 单位错误 400、DOCTOR 403；质控检查无访视返回 `BLOCKED`、DOCTOR 403；三个响应都过契约 schema |
+
+总计 **253 个测试**，全部在 H2（`MODE=MySQL`）上通过。
 
 响应同时被 `contracts/java-business.target.openapi.json` **本身**校验：`ContractSchemas` 读取契约文件、解析 `$ref`、按 JSON Schema 2020-12 并开启 format 断言。契约文件找不到时测试直接失败，不会静默跳过。
 
@@ -183,7 +242,7 @@ cd backend
 | 服务 | 地址 | 本 PR 是否调用 |
 | --- | --- | --- |
 | Java 业务 API（浏览器调用） | `http://127.0.0.1:8080` | 是 |
-| Python 子服务 | `http://127.0.0.1:8091` | **否**（`AgentClient` 属后续 PR） |
+| Python 子服务 | `http://127.0.0.1:8091` | **是**（`RestAgentClient`；连接 2s、读 120s，均可用 `python.agent.*` 覆盖；不自动重试） |
 
 本 PR 新增的数据导入端点（均需登录；`Idempotency-Key` 必填，1–100 字符）：
 
@@ -192,6 +251,19 @@ cd backend
 | `POST` | `/api/import-jobs` | `multipart/form-data`，唯一字段 `file`；校验并返回 `ImportJob`（预览） |
 | `GET` | `/api/import-jobs/{jobId}` | 任务状态；仅创建者或 `ADMIN` 可读 |
 | `POST` | `/api/import-jobs/{jobId}/commit` | 把预览通过的合格行入库；无请求体，无 `Idempotency-Key` |
+
+本 PR 新增的评估 / 复核 / 随访 / 报告 / 审计端点（均需登录）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/assessment-tasks` | `Idempotency-Key` 必填；同步跑 Python 后返回终态任务 |
+| `GET` | `/api/assessment-tasks/{taskId}` | 任务状态与阶段耗时 |
+| `GET` | `/api/assessments/{assessmentId}` | 评估结果（PATIENT 403） |
+| `POST` | `/api/assessments/{assessmentId}/review` | 人工复核 |
+| `POST` | `/api/follow-ups`、`PATCH /api/follow-ups/{followUpId}` | 随访创建与状态变更 |
+| `GET` | `/api/subjects/{subjectId}/follow-ups` | 某档案的随访列表 |
+| `GET` | `/api/reports/{assessmentId}` | 报告视图 |
+| `GET` | `/api/audit-logs` | 审计列表（仅 ADMIN） |
 
 所有响应都是统一 `Envelope`，成功固定 `code=0`、`errorCode=null`：
 ```json
@@ -278,15 +350,15 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作，目前**契约内已实现 10 个**（认证 3 + 档案 3 + 访视 1 + 导入 3），另有 **3 个质控扩展操作**（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`），质控模块已完成接入。未实现：特征读取/写入、评估任务、`AgentClient`、结果查询、人工复核（独立端点）、随访、报告、审计。
+- 契约 22 个操作**已全部实现**，另有 **3 个质控扩展操作**（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`）超出契约范围。剩余工作转为"补齐能力"而非"补齐端点"：特征读取端点仍缺（详情 `features` 恒为空数组）、授权管理（`subject_permission` 写操作）未实现。
 - **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
 - **访视分数的精度（双列语义）**：`raw_mmse`/`raw_moca`/`raw_cdr_sb` 是**权威**值，保存提交数值的**规范化文本**（`BigDecimal.toString()`；`07.50`→`7.50`、`1e1`→`1E+1`、`+1`→`1`、`-0.0`→`0.0`，**精度不丢、字面量不保留**），接口返回它；`mmse`/`moca`/`cdr_sb` 是**派生**列，等于 `round(raw, 2)`，仅供展示、列表与 SQL 统计，不参与评分。因此 `27.555` 会被接口原样返回，而 DECIMAL 列是 `27.56`。两者的派生关系由实体构造函数一次完成，`VisitApiTest` 还有一条**全表不变量**断言 `mmse == round(raw_mmse, 2)`。**V4 的回填不可逆**：V1–V3 期间写入的行早已被舍入，回填只能把"库里仅存的舍入值"复制到 `raw_*`，无法还原原始输入。`raw_*` 为 NULL 的行（手写 SQL、或回填遗漏）读取时退回 DECIMAL 列，不会返回 `null`。入口用 `@Digits(integer = 2, fraction = 61)` 拦掉超出 `VARCHAR(64)` 的精度，避免数据库报错或（MySQL 非严格模式下）静默截断。
-- **FR-AUDIT-01 完全未做**：登录成功与失败只写日志，**没有写入 `audit_log` 表**（表已建）。日志不等于审计。
+- **FR-AUDIT-01 部分完成**：`@AuditLog` + AOP 切面 + `GET /api/audit-logs` 已实现（复核接口已接入，审计行在独立事务里提交），但**登录成功/失败仍只写日志、未写 `audit_log`**，其余业务操作也尚未加注解。日志不等于审计。
 - **FR-AUTH-02/03 部分覆盖**：角色管理接口未实现；档案对象级权限已在 `SubjectAccessPolicy` 中实现但授权管理端点缺失。
-- **`Idempotency-Key` 目前只在 `POST /api/import-jobs` 上实现**（`idempotency_record` + SHA-256 请求摘要）；其他声明了该请求头的操作尚未实现。
+- **`Idempotency-Key` 已在两处实现**：`POST /api/import-jobs` 与 `POST /api/assessment-tasks`（均走 `idempotency_record` + SHA-256 请求摘要，`operation` 区分模块）；其他声明了该请求头的操作尚未实现。
 - **特征模块仍未实现**：没有特征读取端点（详情接口的 `features` 恒为空数组）；导入是当前唯一写 `subject_feature` 的途径，且通过 JDBC 直接插入（该表的实体映射留给将来的特征模块）。
-- **患者字段过滤只覆盖了访视分数**（FR-EXPLAIN-02）：PATIENT 的档案详情已不再返回原始量表分数（`visits` 恒为空），但评估结果中的**排序数值、图权重与内部阶段轨迹**仍需在后端过滤，目前未落实（属评估模块）。特征接入详情后也必须套用同一 `canReadRawScores` 判定。
-- **Mock Python 超时 / 版本错 / 409 / BLOCKED 测试未做**；重启历史查询未做。
+- **患者字段过滤只覆盖了访视分数**（FR-EXPLAIN-02）：PATIENT 的档案详情已不再返回原始量表分数（`visits` 恒为空），但评估结果中的**排序数值、图权重与内部阶段轨迹**仍需在后端过滤，目前未落实（属评估模块）。特征接入详情后也必须套用同一 `canReadRawScores` 判定。**评估结果目前对 PATIENT 直接返回 403**（尚未实现 `PatientAssessmentSummary` 的过滤视图），属"拒绝"而不是"过滤"。
+- **Mock Python 的部分失败路径已覆盖**："客户端抛非业务异常 → 任务 FAILED""结果序列化失败 → FAILED" 都有测试；但**超时、版本不匹配、409 `RUN_ID_CONFLICT`、BLOCKED 的 Mock 测试仍未做**，重启后的历史查询（对账）也未做。
 - **CSRF token 防护未做、`SameSite` 未显式配置**（见第 11 节）。
 - 后端 CI 已添加（`.github/workflows/backend-build.yml`），但**从未在 GitHub 上实际跑过**。
 
@@ -314,3 +386,6 @@ cd backend
 20. **多角色优先级不对称**：写权限 `canCreate` 取**并集**（ADMIN 或 RESEARCHER 任一命中即可导入），而原始量表分数 `canReadRawScores` 由 **PATIENT 一票否决**。因此一个 ADMIN+PATIENT 账号可以导入数据，却读不到自己导入的原始分数。这是有意的安全基线（敏感数据收紧、写操作取最大授权），不是缺陷。
 21. **连接池耗尽返回 500**：未显式配置 Hikari（默认池大小 10、连接等待 30s），耗尽时抛 `CannotGetJdbcConnectionException`，没有专门映射，落到兜底 handler 返回 500。属基础设施故障；契约没有 503，因此未做该映射。
 22. **`GET` 存在性预言机**：`GET /api/import-jobs/{jobId}` 对不存在的 id 返回 400、对存在但无权返回 403，所以任何已登录用户都能区分某个自增 jobId 是否存在（不含内容、不含归属）。与档案模块的既有约定一致，属有意取舍；若需消除，可把两条路径都返回 400。
+23. **PENDING 任务没有对账**：进程若在"写入 PENDING"与"写入终态"之间崩溃，任务会停在 PENDING。`runId` 已持久化，可以拿它去 Python `GET /runs/{runId}` 补齐，但本轮没有实现定时对账任务。
+24. **评估失败原因未持久化**：`assessment_task` 没有 `error_code` / `error_message` 列，`FAILED` 任务只在当次响应里带原因，重新查询时两者为 `null`。需要一条新的 V9 迁移补上这两列。
+25. **质控检查未持久化**：`POST /api/subjects/{subjectId}/quality-checks` 实时计算并按契约返回（`id` 取 `subjectId`），因为 V1 没有 `quality_check` 表。若需要按历史留痕/对比，需要新增迁移 + 实体 + 仓储，并让 `id` 变成真实自增主键。

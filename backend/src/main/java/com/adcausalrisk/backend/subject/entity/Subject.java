@@ -85,4 +85,13 @@ public class Subject {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    /** {@code PATCH /api/subjects/{subjectId}}: only the descriptive fields are mutable. */
+    public void changeAlias(String alias) {
+        this.alias = alias;
+    }
+
+    public void changeStatus(Status status) {
+        this.status = status;
+    }
 }

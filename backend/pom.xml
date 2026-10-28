@@ -34,6 +34,12 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+    <!-- Method-level auditing (@AuditLog -> AuditLogAspect) needs the AOP starter; without it the
+         aspect is silently not created and audited operations leave no trail. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
@@ -148,6 +154,14 @@
                         rather than on the developer's hardware.
           -->
           <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xmx1g</argLine>
+          <!--
+            Test classes share one in-memory H2 database, so the execution order decides
+            which committed rows a later class can see. The default "filesystem" order
+            depends on how the checkout wrote the files, which is why the same commit
+            passed locally and failed on CI. alphabetical makes the order identical on
+            every machine, so an order-dependent test cannot pass by luck.
+          -->
+          <runOrder>alphabetical</runOrder>
         </configuration>
       </plugin>
     </plugins>

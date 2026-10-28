@@ -194,8 +194,12 @@ class SubjectApiTest {
                 .andReturn());
 
         assertThat(body.get("code").asInt()).isZero();
-        assertThat(body.get("data").get("total").asLong()).isEqualTo(3);
-        assertThat(body.get("data").get("items").size()).isEqualTo(3);
+        // The H2 schema is shared by every test class in the run, so the stable claim is
+        // "the rows I seeded are visible and counted" - not "they are the only rows". Asserting
+        // an absolute total made this test fail whenever another class committed a subject.
+        assertThat(subjectCodesIn(body)).contains("DEMO-L1", "DEMO-L2", "DEMO-L3");
+        assertThat(body.get("data").get("total").asLong()).isGreaterThanOrEqualTo(3);
+        assertThat(body.get("data").get("items").size()).isGreaterThanOrEqualTo(3);
         assertThat(ContractSchemas.validateResponse(body, "/api/subjects", "get", 200))
                 .isEmpty();
     }
@@ -212,8 +216,9 @@ class SubjectApiTest {
                 .andExpect(status().isOk())
                 .andReturn());
 
-        assertThat(body.get("data").get("total").asLong()).isEqualTo(2);
-        assertThat(body.get("data").get("items").size()).isEqualTo(2);
+        assertThat(subjectCodesIn(body)).contains("DEMO-R1", "DEMO-R2");
+        assertThat(body.get("data").get("total").asLong()).isGreaterThanOrEqualTo(2);
+        assertThat(body.get("data").get("items").size()).isGreaterThanOrEqualTo(2);
     }
 
     @Test
@@ -260,15 +265,27 @@ class SubjectApiTest {
         MockHttpSession admin = login("admin");
         seedSubjects("DEMO-ONLY-PAGE1", "DEMO-ONLY-PAGE2");
 
-        JsonNode body = bodyOf(mockMvc.perform(get("/api/subjects")
-                        .param("page", "99")
+        // One page past the last one, derived from the real total instead of a fixed number:
+        // the table also holds rows committed by other test classes.
+        JsonNode firstPage = bodyOf(mockMvc.perform(get("/api/subjects")
+                        .param("page", "1")
                         .param("pageSize", "20")
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        long total = firstPage.get("data").get("total").asLong();
+        int pageSize = 20;
+        int beyondLastPage = (int) ((total + pageSize - 1) / pageSize) + 1;
+
+        JsonNode body = bodyOf(mockMvc.perform(get("/api/subjects")
+                        .param("page", String.valueOf(beyondLastPage))
+                        .param("pageSize", String.valueOf(pageSize))
                         .session(admin))
                 .andExpect(status().isOk())
                 .andReturn());
 
         assertThat(body.get("data").get("items").size()).isZero();
-        assertThat(body.get("data").get("total").asLong()).isEqualTo(2);
+        assertThat(body.get("data").get("total").asLong()).isEqualTo(total);
     }
 
     @Test
@@ -620,6 +637,12 @@ class SubjectApiTest {
         MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
         assertThat(session).as("login %s must establish a session", username).isNotNull();
         return session;
+    }
+
+    private List<String> subjectCodesIn(JsonNode body) {
+        List<String> codes = new java.util.ArrayList<>();
+        body.get("data").get("items").forEach(item -> codes.add(item.get("subjectCode").asText()));
+        return codes;
     }
 
     private Subject seedSubjectWithCode(String subjectCode) {

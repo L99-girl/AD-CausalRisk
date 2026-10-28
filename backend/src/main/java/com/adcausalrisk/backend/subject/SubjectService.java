@@ -115,6 +115,36 @@ public class SubjectService {
         return SubjectMapper.toView(saved);
     }
 
+    /**
+     * {@code PATCH /api/subjects/{subjectId}} - rename or archive a subject.
+     *
+     * <p>The contract reuses {@code SubjectCreate} as the body, so {@code subjectCode} is required
+     * but <b>immutable</b>: sending a different code is a 400 rather than a silent rename, because
+     * imports, visits and the Python payload all key on it.
+     */
+    @Transactional
+    public SubjectView updateSubject(Long subjectId, SubjectCreateRequest request, AppUserPrincipal principal) {
+        if (!accessPolicy.canManage(principal, subjectId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "无权修改该档案");
+        }
+        Subject subject = subjectRepository.findById(subjectId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "档案不存在"));
+        if (!subject.getSubjectCode().equals(request.subjectCode())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "subjectCode 不可修改");
+        }
+        String alias = request.alias() == null ? "" : request.alias().trim();
+        if (alias.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "alias 不能为空");
+        }
+        subject.changeAlias(alias);
+        if (request.status() != null && !request.status().isBlank()) {
+            subject.changeStatus(parseStatus(request.status()));
+        }
+        // saveAndFlush, not save: the row must be written before the response is built so a
+        // same-connection reader (and any JdbcTemplate caller) sees the new value.
+        return SubjectMapper.toView(subjectRepository.saveAndFlush(subject));
+    }
+
     // ===================================================================
     // GET /api/subjects/{subjectId}  -  single detail
     // ===================================================================
@@ -185,6 +215,14 @@ public class SubjectService {
      * CHECK {@code LIKE 'demo-%'} and the contract pattern {@code ^demo-}.
      * Uses a UUID fragment so concurrent create requests cannot collide.
      */
+    private static Subject.Status parseStatus(String status) {
+        try {
+            return Subject.Status.valueOf(status.trim());
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "status 仅支持 ACTIVE / ARCHIVED");
+        }
+    }
+
     private static String generateDataVersion() {
         return "demo-" + UUID.randomUUID().toString().substring(0, 8);
     }
