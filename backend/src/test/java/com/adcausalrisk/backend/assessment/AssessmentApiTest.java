@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import com.adcausalrisk.backend.agent.AgentRequest;
 import com.adcausalrisk.backend.agent.AgentResult;
 import com.adcausalrisk.backend.agent.RestAgentClient;
+import com.adcausalrisk.backend.contract.ContractSchemas;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectRepository;
 import com.adcausalrisk.backend.subject.entity.Subject;
@@ -169,6 +170,48 @@ class AssessmentApiTest {
         assertThat(result.get("data").get("agentResult").get("riskScore").decimalValue())
                 .isEqualByComparingTo("0.8304");
         assertThat(result.get("data").get("reviewStatus").asText()).isEqualTo("PENDING");
+    }
+
+    /**
+     * {@code GET /api/reports/{assessmentId}} - the last contract operation that had no coverage.
+     * It reuses the assessment read permission, so an ADMIN receives the full report and a PATIENT
+     * is refused before any payload is built.
+     */
+    @Test
+    void reportIsReadableByAdminAndForbiddenForPatient() throws Exception {
+        when(agentClient.createRun(any(AgentRequest.class))).thenReturn(completedResult("0.8304"));
+        MockHttpSession admin = login("admin");
+
+        JsonNode created = bodyOf(mockMvc.perform(post("/api/assessment-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "assessment-report")
+                        .content(createRequestJson(24))
+                        .session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+        long assessmentId = created.get("data").get("assessmentId").asLong();
+        assertThat(assessmentId).isPositive();
+
+        JsonNode report = bodyOf(mockMvc.perform(get("/api/reports/" + assessmentId).session(admin))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        assertThat(report.get("code").asInt()).isZero();
+        assertThat(report.get("data").get("assessmentId").asLong()).isEqualTo(assessmentId);
+        assertThat(report.get("data").get("agentResult").get("riskScore").decimalValue())
+                .isEqualByComparingTo("0.8304");
+        assertThat(report.get("data").get("agentResult").get("status").asText()).isEqualTo("COMPLETED");
+        assertThat(ContractSchemas.validateResponse(report, "/api/reports/{assessmentId}", "get", 200))
+                .as("the report view must match the frozen contract")
+                .isEmpty();
+
+        JsonNode refused = bodyOf(mockMvc.perform(
+                        get("/api/reports/" + assessmentId).session(login("patient")))
+                .andExpect(status().isForbidden())
+                .andReturn());
+
+        assertThat(refused.get("errorCode").asText()).isEqualTo("ACCESS_DENIED");
+        assertThat(refused.get("data").isNull()).as("a refusal must not carry the report").isTrue();
     }
 
     /**
