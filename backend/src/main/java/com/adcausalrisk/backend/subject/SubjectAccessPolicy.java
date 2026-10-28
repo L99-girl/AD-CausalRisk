@@ -91,6 +91,27 @@ public class SubjectAccessPolicy {
     }
 
     /**
+     * Whether the principal may <b>modify</b> this subject ({@code PATCH /api/subjects/{subjectId}}).
+     *
+     * <p>ADMIN / RESEARCHER may edit any subject. A DOCTOR needs an explicit {@code MANAGE} grant on
+     * that subject - a plain {@code VIEW} grant is not enough, and {@code PATIENT} is refused
+     * outright even when another role is present.
+     */
+    public boolean canManage(AppUserPrincipal principal, Long subjectId) {
+        if (principal.roleCodes().contains("PATIENT")) {
+            return false;
+        }
+        if (principal.roleCodes().stream().anyMatch(CREATOR_ROLES::contains)) {
+            return true;
+        }
+        if (!principal.roleCodes().contains("DOCTOR")) {
+            return false;
+        }
+        return permissionRepository.findPermissionTypes(subjectId, principal.userId())
+                .contains(PermissionType.MANAGE);
+    }
+
+    /**
      * Whether the principal may receive raw visit scores for <i>this</i> subject - the
      * {@code visits} array of {@code SubjectDetail}, which carries {@code mmse}, {@code moca}
      * and {@code cdrSb}.
