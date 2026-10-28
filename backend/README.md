@@ -16,7 +16,7 @@
 
 ## 1. 已实现范围
 
-共同契约共 **22 个操作**，其中**契约内已实现 19 个**（认证 3 + 档案 3 + 访视 1 + 导入 3 + 评估任务 2 + 评估结果 1 + 人工复核 1 + 随访 3 + 报告 1 + 审计 1）；**未实现 3 个**：`PATCH /api/subjects/{subjectId}`（修改档案）、`POST /api/subjects/{subjectId}/features`（写入特征）、`POST /api/subjects/{subjectId}/quality-checks`（执行质控检查）。另有 **3 个扩展操作**（质控，超出契约 22 个操作的范围，见下）。
+共同契约共 **22 个操作，全部已实现**（认证 3 + 档案 4 + 访视 1 + 特征 1 + 质控检查 1 + 导入 3 + 评估任务 2 + 评估结果 1 + 人工复核 1 + 随访 3 + 报告 1 + 审计 1）。另有 **3 个扩展操作**（质控审核工作流，超出契约 22 个操作的范围，见下）。
 
 ### 第一组：认证（auth）
 | 操作 | 路径 | 说明 |
@@ -31,6 +31,7 @@
 | `getApiSubjects` | `GET /api/subjects` | 分页查询档案列表，先按权限过滤再分页 |
 | `postApiSubjects` | `POST /api/subjects` | 创建档案（ADMIN / RESEARCHER） |
 | `getApiSubjectssubjectId` | `GET /api/subjects/{subjectId}` | 查询档案详情；`visits` 来自 `visit` 表，`features` 仍为空数组 |
+| `patchApiSubjectssubjectId` | `PATCH /api/subjects/{subjectId}` | 改别名 / 归档；请求体复用 `SubjectCreate`，`subjectCode` 必须原样回传（不可改，改了是 400）；ADMIN/RESEARCHER 或持 `MANAGE` 授权的 DOCTOR |
 
 ### 第三组：访视（visit）
 | 操作 | 路径 | 说明 |
@@ -109,6 +110,15 @@
 | `getApiAudit-logs` | `GET /api/audit-logs` | 仅 `ADMIN`；按发生时间倒序，**无分页**（契约的 `data` 是数组而非分页结构） |
 
 `@AuditLog(eventType, summary)` + `AuditLogAspect` 在目标方法**成功返回后**写 `audit_log`：写入走独立事务（`REQUIRES_NEW`），失败只记日志、不回滚业务。目前只有复核接口接入了注解，**登录成功/失败仍未写审计**。
+
+### 第十组：特征与质控检查（契约补齐）
+
+| 操作 | 路径 | 说明 |
+| --- | --- | --- |
+| `postApiSubjectsFeaturessubjectId` | `POST /api/subjects/{subjectId}/features` | 单条 `Feature` 入库（`subject_feature` 无 JPA 实体，用 JDBC 插入并取回自增 id）；APOE 必须是 `count` + 整数 0–2，MRI 必须是 `normalized` + [0,1]，`featureValue` 可为 null；仅 ADMIN/RESEARCHER |
+| `postApiSubjectsQuality-checkssubjectId` | `POST /api/subjects/{subjectId}/quality-checks` | 返回 `QualityCheck`：无访视 → `BLOCKED`，有待审质控记录 → `WARN`，否则 `PASS`；`ruleVersion=qc-rules-demo-v1`；仅 ADMIN/RESEARCHER |
+
+**质控检查尚未持久化**：V1 没有 `quality_check` 表，因此该端点每次实时计算并返回契约结构，`id` 取 `subjectId`（同一档案多次调用稳定）。要"保存"历史记录，需要新增一条迁移 + 实体（见第 13 节）。
 
 另外交付：15 张表的 Flyway 基线迁移、四角色与合成账号种子、统一 `Envelope` 响应与错误映射、`X-Trace-Id` 追踪、会话安全配置、CSV 数据导入（预览 + 确认入库）、后端 CI。
 
@@ -215,13 +225,15 @@ cd backend
 | `ImportJobApiTest` | 29 | 预览三表、缺 `Idempotency-Key` / 缺 `file` / 错误 Content-Type / 超限 / **Key 超长或为空** / **只有表头** 均受控 4xx、幂等重放与同 key 换内容 400、commit 入库（档案/访视/特征）、**空特征值入库为 SQL NULL**、重复 commit 400、**预览后被降权为 PATIENT 的创建者 commit 返回 403 且不写库**、`BLOCKED` 400 且**不保留上传原文**、预览后数据变化 400、**同数量换行被摘要拦下**、**无摘要的旧任务退回数量比较**、`errors` 截断到 200 而计数完整、读权限（创建者 vs 非 ADMIN）、DOCTOR/PATIENT 403、未登录 401、契约 schema 校验 |
 | `ImportJobServiceTest` | 13 | 纯 Mockito：幂等唯一约束竞态的失败方**重放赢家**而不是 500、同 key 不同内容被拒、commit 重放计数不一致被拒且不写库、**commit 走加锁查询**、**降权后的拥有者仍被拒（所有权不等于写权限）**、已 `COMMITTED` 的任务被拒、**无记录的非唯一键冲突降级为 400**、Key 长度越界在触库前被拒、**行集变化（同数量）被摘要拦下**、**无摘要时退回数量比较**、**"今天"取自配置时区的 Clock**、**重放时 `result_id` 为空是 400 而非 500**、**重放时拒绝他人的任务** |
 | `ImportJobCommitConcurrencyTest` | 1 | 非事务集成测试：两个线程同时 commit 同一任务，**只有一个成功、另一个得到业务异常**，特征行只插入一次（不依赖唯一约束的那张表） |
-| `AssessmentApiTest` | 6 | 非事务集成测试：400 而非 404（不存在的评估结果）、`predictionWindowMonths` 5/61 被拒、DOCTOR 创建 403、完整闭环（POST → COMPLETED + `assessmentId`，GET 回读 `riskScore` 与 `reviewStatus`）、**同 key 双线程并发只产生 1 个任务且无 5xx** |
+| `AssessmentApiTest` | 7 | 非事务集成测试：400 而非 404（不存在的评估结果）、`predictionWindowMonths` 5/61 被拒、DOCTOR 创建 403、完整闭环（POST → COMPLETED + `assessmentId`，GET 回读 `riskScore` 与 `reviewStatus`）、**同 key 双线程并发只产生 1 个任务且无 5xx**、**报告接口 `GET /api/reports/{assessmentId}`：ADMIN 200 且过契约 schema，PATIENT 403 且响应无 data** |
 | `AssessmentServiceTest` | 5 | 纯 Mockito：非 `BusinessException` 的客户端异常 → 任务落 `FAILED` 而非卡 PENDING、序列化失败 → `FAILED` 且不写结果行、`" key "` 与 `"key"` 命中同一幂等域、库里 `riskScore=2.0` 的旧结果被 `parse` 拦下、`canView` 为假时 403 且不落库 |
 | `AssessmentReviewApiTest` | 3 | 非事务：`ACKNOWLEDGED` 后查库确认 `review_status` 已提交、`@AuditLog` 真实写入 `audit_log`（不 mock `AuditService`）、PATIENT 复核 403 且不改数据、非 ADMIN 读审计 403 而 ADMIN 200 |
 | `FollowUpApiTest` | 6 | 非事务：创建即 `PLANNED`、`PATCH` → `COMPLETED`/`CANCELLED` 查库确认、非法状态 400 且不改数据、不存在的 id 是 400（契约无 404）、无 `canView` 的 DOCTOR 在创建/修改/查询三个入口都是 403 |
 | `GlobalExceptionHandlerTest` | 3 | `DataIntegrityViolationException` → 400（commit 期间数据冲突不得变成 500）；**行锁等待超时 / 死锁（`CannotAcquireLockException` / `PessimisticLockingFailureException`）→ 400"操作冲突，请稍后重试"**（文案中性，因为该 handler 对所有模块生效）；**无法解析的 multipart → 400，且 `MaxUploadSizeExceededException` 仍走更具体的"超过大小限制"文案** |
 
-总计 **241 个测试**，全部在 H2（`MODE=MySQL`）上通过。
+| `RemainingEndpointsApiTest` | 8 | `PATCH` 档案改名/归档 + `subjectCode` 不可改 + DOCTOR 无授权 403；特征单条入库、APOE 单位错误 400、DOCTOR 403；质控检查无访视返回 `BLOCKED`、DOCTOR 403；三个响应都过契约 schema |
+
+总计 **253 个测试**，全部在 H2（`MODE=MySQL`）上通过。
 
 响应同时被 `contracts/java-business.target.openapi.json` **本身**校验：`ContractSchemas` 读取契约文件、解析 `$ref`、按 JSON Schema 2020-12 并开启 format 断言。契约文件找不到时测试直接失败，不会静默跳过。
 
@@ -338,7 +350,7 @@ cd backend
 
 ## 12. 未完成项
 
-- 契约 22 个操作，目前**契约内已实现 19 个**（认证 3 + 档案 3 + 访视 1 + 导入 3 + 评估任务 2 + 评估结果 1 + 人工复核 1 + 随访 3 + 报告 1 + 审计 1），另有 **3 个质控扩展操作**（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`）。**未实现**：`PATCH /api/subjects/{subjectId}`（修改档案）、`POST /api/subjects/{subjectId}/features`（写入特征）、`POST /api/subjects/{subjectId}/quality-checks`（触发 Python 质量检查）。
+- 契约 22 个操作**已全部实现**，另有 **3 个质控扩展操作**（`GET /api/qc/list`、`POST /api/qc/{id}/audit`、`GET /api/qc/stats`）超出契约范围。剩余工作转为"补齐能力"而非"补齐端点"：特征读取端点仍缺（详情 `features` 恒为空数组）、授权管理（`subject_permission` 写操作）未实现。
 - **档案/访视模块剩余**：授权管理接口（`subject_permission` 写操作）未实现；特征写入未实现（详情接口的 `features` 目前恒为空数组）；访视只支持创建，**没有修改或删除**（契约也未声明）。
 - **访视分数的精度（双列语义）**：`raw_mmse`/`raw_moca`/`raw_cdr_sb` 是**权威**值，保存提交数值的**规范化文本**（`BigDecimal.toString()`；`07.50`→`7.50`、`1e1`→`1E+1`、`+1`→`1`、`-0.0`→`0.0`，**精度不丢、字面量不保留**），接口返回它；`mmse`/`moca`/`cdr_sb` 是**派生**列，等于 `round(raw, 2)`，仅供展示、列表与 SQL 统计，不参与评分。因此 `27.555` 会被接口原样返回，而 DECIMAL 列是 `27.56`。两者的派生关系由实体构造函数一次完成，`VisitApiTest` 还有一条**全表不变量**断言 `mmse == round(raw_mmse, 2)`。**V4 的回填不可逆**：V1–V3 期间写入的行早已被舍入，回填只能把"库里仅存的舍入值"复制到 `raw_*`，无法还原原始输入。`raw_*` 为 NULL 的行（手写 SQL、或回填遗漏）读取时退回 DECIMAL 列，不会返回 `null`。入口用 `@Digits(integer = 2, fraction = 61)` 拦掉超出 `VARCHAR(64)` 的精度，避免数据库报错或（MySQL 非严格模式下）静默截断。
 - **FR-AUDIT-01 部分完成**：`@AuditLog` + AOP 切面 + `GET /api/audit-logs` 已实现（复核接口已接入，审计行在独立事务里提交），但**登录成功/失败仍只写日志、未写 `audit_log`**，其余业务操作也尚未加注解。日志不等于审计。
@@ -376,3 +388,4 @@ cd backend
 22. **`GET` 存在性预言机**：`GET /api/import-jobs/{jobId}` 对不存在的 id 返回 400、对存在但无权返回 403，所以任何已登录用户都能区分某个自增 jobId 是否存在（不含内容、不含归属）。与档案模块的既有约定一致，属有意取舍；若需消除，可把两条路径都返回 400。
 23. **PENDING 任务没有对账**：进程若在"写入 PENDING"与"写入终态"之间崩溃，任务会停在 PENDING。`runId` 已持久化，可以拿它去 Python `GET /runs/{runId}` 补齐，但本轮没有实现定时对账任务。
 24. **评估失败原因未持久化**：`assessment_task` 没有 `error_code` / `error_message` 列，`FAILED` 任务只在当次响应里带原因，重新查询时两者为 `null`。需要一条新的 V9 迁移补上这两列。
+25. **质控检查未持久化**：`POST /api/subjects/{subjectId}/quality-checks` 实时计算并按契约返回（`id` 取 `subjectId`），因为 V1 没有 `quality_check` 表。若需要按历史留痕/对比，需要新增迁移 + 实体 + 仓储，并让 `id` 变成真实自增主键。
