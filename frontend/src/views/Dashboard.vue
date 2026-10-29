@@ -45,8 +45,7 @@
               </div>
               <div class="stat-title">
                 {{ s.title }}
-                <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
-              </div>
+                </div>
               <div class="stat-foot">{{ s.foot }}</div>
             </div>
           </div>
@@ -61,7 +60,6 @@
             <div class="card-title-inner">
               <span class="card-title-dot" />
               档案增长趋势
-              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="growthOption" height="320px" />
@@ -76,7 +74,6 @@
             <div class="card-title-inner">
               <span class="card-title-dot orange" />
               风险等级分布
-              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="riskOption" height="320px" />
@@ -88,7 +85,6 @@
             <div class="card-title-inner">
               <span class="card-title-dot green" />
               诊断类型统计
-              <a-tag color="orange" size="small" class="mock-tag">演示 Mock</a-tag>
             </div>
           </template>
           <BaseChart :options="diagnosisOption" height="320px" />
@@ -99,54 +95,69 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   IconUser, IconPlus, IconExclamation, IconCloseCircle,
   IconHome, IconRefresh, IconArrowRise, IconArrowFall
 } from '@arco-design/web-vue/es/icon'
 import BaseChart from '../components/BaseChart.vue'
+import { getQcStats } from '../api/qc.js'
 
 const range = ref('30d')
+const qcStats = ref({ pendingCount: 0, approvedCount: 0, rejectedCount: 0 })
+
+onMounted(async () => {
+  try {
+    qcStats.value = (await getQcStats()) || { pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
+  } catch {
+    qcStats.value = { pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
+  }
+})
 
 const stats = computed(() => [
   {
-    title: '总档案数',
-    value: 2847,
-    unit: '人',
-    trend: 12.4,
-    foot: '较上月 +313 人',
-    icon: IconUser,
-    color: '#165DFF'
-  },
-  {
-    title: '今日新增',
-    value: 28,
-    unit: '人',
-    trend: -3.5,
-    foot: '昨日 29 人 · 本周均值 26',
-    icon: IconPlus,
-    color: '#00B42A'
-  },
-  {
-    title: '高风险人数',
-    value: 412,
-    unit: '人',
-    trend: 8.2,
-    foot: '占比 14.5% · 需重点干预',
+    title: '待审核质控',
+    value: qcStats.value.pendingCount,
+    unit: '条',
+    trend: 0,
+    foot: '来自 GET /api/qc/stats',
     icon: IconExclamation,
     color: '#F77234'
   },
   {
-    title: '质量拦截数',
-    value: 17,
+    title: '已通过',
+    value: qcStats.value.approvedCount,
     unit: '条',
-    trend: -22.8,
-    foot: '校验未通过，已阻止入库',
+    trend: 0,
+    foot: '来自 GET /api/qc/stats',
     icon: IconCloseCircle,
     color: '#F53F3F'
+  },
+  {
+    title: '已驳回',
+    value: qcStats.value.rejectedCount,
+    unit: '条',
+    trend: 0,
+    foot: '来自 GET /api/qc/stats',
+    icon: IconCloseCircle,
+    color: '#F53F3F'
+  },
+  {
+    title: '质控记录总数',
+    value: qcStats.value.pendingCount + qcStats.value.approvedCount + qcStats.value.rejectedCount,
+    unit: '条',
+    trend: 0,
+    foot: '合计（真实后端统计）',
+    icon: IconUser,
+    color: '#165DFF'
   }
 ])
 
+const emptyGrowth = {
+  xAxisData: [],
+  seriesNew: [],
+  seriesCum: []
+}
 const growthOption = ref({
   tooltip: {
     trigger: 'axis',
@@ -167,7 +178,7 @@ const growthOption = ref({
   xAxis: {
     type: 'category',
     boundaryGap: false,
-    data: ['10-01','10-03','10-05','10-07','10-09','10-11','10-13','10-15','10-17','10-19','10-21','10-23','10-25','10-27','10-29','10-31'],
+    data: emptyGrowth.xAxisData,
     axisLine: { lineStyle: { color: '#E5E6EB' } },
     axisTick: { show: false },
     axisLabel: { color: '#86909C', fontSize: 11 }
@@ -195,7 +206,7 @@ const growthOption = ref({
       smooth: true,
       symbol: 'circle',
       symbolSize: 6,
-      data: [22, 28, 25, 31, 29, 35, 41, 38, 44, 48, 52, 47, 55, 58, 51, 60],
+      data: emptyGrowth.seriesNew,
       itemStyle: { color: '#165DFF' },
       lineStyle: { width: 2.5 },
       areaStyle: {
@@ -215,7 +226,7 @@ const growthOption = ref({
       smooth: true,
       symbol: 'circle',
       symbolSize: 6,
-      data: [2400, 2428, 2453, 2484, 2513, 2548, 2589, 2627, 2671, 2719, 2771, 2818, 2873, 2931, 2982, 3042],
+      data: emptyGrowth.seriesCum,
       itemStyle: { color: '#722ED1' },
       lineStyle: { width: 2.5 },
       areaStyle: {
@@ -263,11 +274,11 @@ const riskOption = ref({
     },
     labelLine: { length: 10, length2: 8, lineStyle: { color: '#C9CDD4' } },
     data: [
-      { value: 1245, name: '低风险' },
-      { value: 823,  name: '较低风险' },
-      { value: 367,  name: '中风险' },
-      { value: 278,  name: '较高风险' },
-      { value: 134,  name: '高风险' }
+      { value: 0, name: '低风险' },
+      { value: 0,  name: '较低风险' },
+      { value: 0,  name: '中风险' },
+      { value: 0,  name: '较高风险' },
+      { value: 0,  name: '高风险' }
     ]
   }]
 })
@@ -314,12 +325,14 @@ const diagnosisOption = ref({
       fontWeight: 600,
       offset: [0, 4]
     },
-    data: [892, 1047, 712, 158, 38]
+    data: [0, 0, 0, 0, 0]
   }]
 })
 
 function refreshAll() {
-  range.value = range.value
+  getQcStats().then(res => {
+    qcStats.value = res || { pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
+  }).catch(() => {})
 }
 </script>
 
