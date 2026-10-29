@@ -51,6 +51,12 @@ const routes = [
         name: 'QcAuditList',
         component: () => import('../views/qc/QcAuditList.vue'),
         meta: { title: '质控审核', keepAlive: true, roles: ['ADMIN', 'RESEARCHER'] }
+      },
+      {
+        path: 'tasks',
+        name: 'TaskList',
+        component: () => import('../views/tasks/TaskList.vue'),
+        meta: { title: '评估任务', keepAlive: true, roles: ['DOCTOR', 'RESEARCHER', 'ADMIN'] }
       }
     ]
   },

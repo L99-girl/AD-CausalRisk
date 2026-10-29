@@ -91,6 +91,34 @@ public class SubjectAccessPolicy {
     }
 
     /**
+     * Whether the principal may run a <b>clinical operation</b> on one subject
+     * (currently: creating a visit, or launching an assessment task).
+     *
+     * <p>{@code ADMIN} / {@code RESEARCHER} may operate on every subject. A {@code DOCTOR}
+     * may operate only on a subject they hold {@code VIEW} or {@code MANAGE} for - they need
+     * an explicit grant, and a bare {@code SUMMARY_READ} is never enough. {@code PATIENT}
+     * is refused outright.
+     *
+     * <p>This is a deliberately separate question from {@link #canCreate} (which guards creating
+     * a new subject and stays ADMIN/RESEARCHER only): a doctor who manages a patient's record
+     * must be able to record a visit or start a risk assessment for that patient without being
+     * able to invent brand-new subject rows.
+     */
+    public boolean canOperate(AppUserPrincipal principal, Long subjectId) {
+        if (principal.roleCodes().contains("PATIENT")) {
+            return false;
+        }
+        if (principal.roleCodes().stream().anyMatch(CREATOR_ROLES::contains)) {
+            return true;
+        }
+        if (!principal.roleCodes().contains("DOCTOR")) {
+            return false;
+        }
+        return permissionRepository.findPermissionTypes(subjectId, principal.userId()).stream()
+                .anyMatch(type -> type == PermissionType.VIEW || type == PermissionType.MANAGE);
+    }
+
+    /**
      * Whether the principal may <b>modify</b> this subject ({@code PATCH /api/subjects/{subjectId}}).
      *
      * <p>ADMIN / RESEARCHER may edit any subject. A DOCTOR needs an explicit {@code MANAGE} grant on

@@ -1,6 +1,12 @@
+import request from './request.js'
 import { mockDelay } from '../mock/data.js'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
+
+// 后端 Idempotency-Key 用于去重幂等；每次上传生成一个唯一值
+function newIdempotencyKey() {
+  return `imp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 const PRESET_ISSUES = {
   'DEMO-ERR-001': ['subject_code 重复', 'APOE 基因型格式错误'],
@@ -68,7 +74,10 @@ export async function previewImport(file, onProgress) {
   if (!USE_MOCK) {
     const fd = new FormData()
     fd.append('file', file)
-    return fetch('/api/import/preview', { method: 'POST', body: fd }).then(r => r.json())
+    // 对齐后端 POST /api/import-jobs，multipart/form-data（axios 对 FormData 自动设 boundary 并加 Content-Type），携带幂等键
+    return request.post('/import-jobs', fd, {
+      headers: { 'Idempotency-Key': newIdempotencyKey() }
+    })
   }
   const totalSteps = 25
   for (let i = 1; i <= totalSteps; i++) {
@@ -80,7 +89,8 @@ export async function previewImport(file, onProgress) {
 
 export async function commitImport(jobId, onProgress) {
   if (!USE_MOCK) {
-    return fetch(`/api/import/commit/${jobId}`, { method: 'POST' }).then(r => r.json())
+    // 对齐后端 POST /api/import-jobs/{jobId}/commit
+    return request.post(`/import-jobs/${jobId}/commit`)
   }
   for (let i = 1; i <= 10; i++) {
     await mockDelay(60 + Math.random() * 80)

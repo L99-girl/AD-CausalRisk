@@ -129,7 +129,7 @@
         <a-descriptions-item label="异常项">{{ formatItems(auditTarget.abnormalItems) }}</a-descriptions-item>
       </a-descriptions>
 
-      <a-form layout="vertical" class="audit-form">
+      <a-form layout="vertical" class="audit-form" :model="auditForm">
         <a-form-item label="审核结论" required>
           <a-radio-group v-model="auditForm.status">
             <a-radio value="APPROVED">通过</a-radio>

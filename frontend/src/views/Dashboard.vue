@@ -163,7 +163,7 @@ const growthOption = ref({
     itemWidth: 14,
     itemHeight: 8
   },
-  grid: { left: 12, right: 16, top: 44, bottom: 8, containLabel: true },
+  grid: { left: 48, right: 16, top: 44, bottom: 28 },
   xAxis: {
     type: 'category',
     boundaryGap: false,
@@ -280,7 +280,7 @@ const diagnosisOption = ref({
     textStyle: { color: '#fff', fontSize: 12 },
     axisPointer: { type: 'shadow' }
   },
-  grid: { left: 12, right: 16, top: 24, bottom: 8, containLabel: true },
+  grid: { left: 48, right: 16, top: 24, bottom: 28 },
   xAxis: {
     type: 'category',
     data: ['AD', 'MCI', 'Normal', 'Other', 'Unknown'],

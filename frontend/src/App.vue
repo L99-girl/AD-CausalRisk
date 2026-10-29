@@ -9,12 +9,13 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--color-fill-2, #f5f7fa);
+  background: linear-gradient(135deg, #d4e8ff 0%, #e8f0fe 50%, #d9e2ec 100%) !important;
   transition: background-color 0.2s ease;
 }
 
 #app {
   min-height: 100vh;
+  background: transparent !important;
 }
 
 * {

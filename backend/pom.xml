@@ -72,11 +72,12 @@
       <scope>runtime</scope>
     </dependency>
 
-    <!-- Test only: H2 in MySQL compatibility mode. No Docker / Testcontainers. -->
+    <!-- Test uses H2 in MySQL compatibility mode; runtime (spring-boot:run on a machine
+         without MySQL) also uses it. No Docker / Testcontainers. -->
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
-      <scope>test</scope>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -913,10 +913,6 @@ html{color-scheme:light;color-scheme:light only;background:#eaf7fd}
   --font-latin:"Segoe UI Variable Display","Segoe UI",sans-serif;
 }
 body{overflow-x:hidden;background:#eaf7fd;color:#11344b}
-@media (prefers-color-scheme: dark){
-  :root,html{color-scheme:light;color-scheme:light only}
-  html,body{background:#eaf7fd}
-}
 
 /* The stage is a right-side medical glass panel, not a second page. */
 .brain-stage{
@@ -1490,4 +1486,3 @@ body.scene-detail .detail-inner{padding-bottom:136px!important}
   .detail-drawer.is-open .detail-metrics,
   .detail-drawer.is-open .detail-note{animation:none!important}
 }
-

@@ -24,8 +24,11 @@ function check(el, binding) {
     return false
   })
 
-  if (!has) {
-    el.parentNode?.removeChild(el)
+  // 用 v-show 风格隐藏而非 removeChild，兼容组件根节点与数据刷新
+  if (has) {
+    if (el.style.display === 'none') el.style.display = ''
+  } else {
+    el.style.display = 'none'
   }
 }
 

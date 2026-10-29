@@ -24,7 +24,7 @@
         :selected-keys="selectedKeys"
         :open-keys="openKeys"
         mode="vertical"
-        :theme="isDark ? 'dark' : 'light'"
+        theme="light"
         :auto-open-selected="true"
         @menu-item-click="onMenuClick"
         @sub-menu-click="onSubMenuClick"
@@ -51,6 +51,11 @@
         <a-menu-item key="qc" v-permission="['ADMIN', 'RESEARCHER']">
           <icon-check-circle />
           <template #title>质控审核</template>
+        </a-menu-item>
+
+        <a-menu-item key="tasks" v-permission="['DOCTOR', 'RESEARCHER', 'ADMIN']">
+          <icon-thunderbolt />
+          <template #title>评估任务</template>
         </a-menu-item>
 
         <a-menu-item key="followup" disabled>
@@ -99,13 +104,6 @@
             </a-button>
           </a-tooltip>
 
-          <a-tooltip :content="isDark ? '亮色模式' : '暗黑模式'">
-            <a-button type="text" shape="circle" size="small" @click="toggleTheme">
-              <icon-sun v-if="isDark" />
-              <icon-moon v-else />
-            </a-button>
-          </a-tooltip>
-
           <a-dropdown>
             <div class="user-info">
               <a-avatar :size="32" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
@@ -138,13 +136,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { logout } from '../api/auth.js'
 import { useUserStore } from '../stores/user.js'
-
-const DARK_ATTR = 'arco-theme'
-const STORAGE_KEY = 'ad-causalrisk-theme'
 
 const router = useRouter()
 const route = useRoute()
@@ -152,7 +147,6 @@ const userStore = useUserStore()
 
 const collapsed = ref(false)
 const isFullscreen = ref(false)
-const isDark = ref(false)
 
 const user = computed(() => ({
   username: userStore.username,
@@ -163,6 +157,7 @@ const menuMap = {
   '/dashboard':  ['首页'],
   '/subjects':   ['首页', '档案管理', '档案列表'],
   '/qc':         ['首页', '质控审核'],
+  '/tasks':      ['首页', '评估任务'],
   '/followup':   ['首页', '随访管理'],
   '/settings':   ['首页', '系统设置']
 }
@@ -186,7 +181,8 @@ function onMenuClick(key) {
   const map = {
     'dashboard': '/dashboard',
     'subject-list': '/subjects',
-    'qc': '/qc'
+    'qc': '/qc',
+    'tasks': '/tasks'
   }
   if (map[key] && map[key] !== route.path) {
     router.push(map[key])
@@ -209,33 +205,17 @@ function refreshPage() {
   window.location.reload()
 }
 
-function applyTheme(dark) {
-  if (dark) {
-    document.body.setAttribute(DARK_ATTR, 'dark')
-  } else {
-    document.body.removeAttribute(DARK_ATTR)
-  }
-}
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-}
-
-watch(isDark, (val) => {
-  applyTheme(val)
-  localStorage.setItem(STORAGE_KEY, val ? 'dark' : 'light')
-})
-
 function doLogout() {
   logout()
   router.push('/login')
 }
 
 onMounted(() => {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
-  isDark.value = saved ? saved === 'dark' : !!prefersDark
-  applyTheme(isDark.value)
+  // App is locked to light mode; any stale dark token left in storage is purged here.
+  try {
+    localStorage.removeItem('ad-causalrisk-theme')
+    document.body.removeAttribute('arco-theme')
+  } catch {}
 })
 
 document.addEventListener('fullscreenchange', () => {
@@ -389,10 +369,16 @@ document.addEventListener('fullscreenchange', () => {
 }
 
 .content {
-  background: var(--color-fill-2);
+  background:
+    linear-gradient(135deg, #d4e8ff 0%, #e8f0fe 50%, #d9e2ec 100%) !important;
+  background-attachment: fixed;
   min-height: calc(100vh - 56px);
   overflow: auto;
 }
+/* 绝不允许 Arco 布局外壳的白底盖住渐变 */
+.content :deep(.arco-layout),
+.content :deep(.arco-layout-content),
+.content :deep(.arco-layout-header) { background: transparent !important; }
 
 .fade-enter-active,
 .fade-leave-active {

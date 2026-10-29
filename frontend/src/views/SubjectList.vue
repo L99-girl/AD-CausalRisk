@@ -728,17 +728,53 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
-.page { padding: 20px 24px 40px; }
+.page {
+  padding: 20px 16px 40px;
+  min-height: calc(100vh - 56px);
+  /* 背景由 MainLayout.content 的蓝紫渐变下沉提供，这里透明透出。
+     仅叠加两层亮色光晕，增强本页的玻璃反射层次。 */
+  background:
+    radial-gradient(820px 420px at 85% 0%, rgba(191, 219, 254, 0.35), transparent 60%),
+    radial-gradient(700px 380px at 5% 100%, rgba(224, 231, 255, 0.35), transparent 55%);
+}
+
+/* ===================== 毛玻璃通用段落（后续可复用） ===================== */
+.glass-card {
+  background: rgba(255, 255, 255, 0.45) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 100, 255, 0.1) !important;
+  border-radius: 16px;
+}
+
+/* Arco <a-card> 内层默认白底兜底置透明，避免盖住玻璃质感 */
+.stat-card :deep(.arco-card),
+.toolbar-card :deep(.arco-card),
+.main-split-card :deep(.arco-card) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
 
 .stat-row { margin-bottom: 16px; }
 .stat-card {
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 100, 255, 0.1) !important;
+  border-radius: 16px;
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.09);
 }
 .stat-card :deep(.arco-card-body) { padding: 18px 20px; }
 .stat-card :deep(.arco-statistic-title) {
@@ -751,9 +787,15 @@ onMounted(fetchList)
 .stat-block :deep(.arco-statistic-value) { color: #f53f3f; }
 
 .toolbar-card {
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 100, 255, 0.1) !important;
+  border-radius: 16px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .toolbar {
@@ -771,8 +813,15 @@ onMounted(fetchList)
 }
 
 .main-split-card {
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: rgba(255, 255, 255, 0.45) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 100, 255, 0.1) !important;
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .split-layout { display: flex; gap: 0; min-height: 520px; }
@@ -780,18 +829,20 @@ onMounted(fetchList)
 .tree-panel {
   width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid var(--color-border-2);
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
   padding: 0 12px 12px;
-  background: var(--color-fill-2);
+  background: rgba(240, 248, 255, 0.35);
 }
 
 .tree-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 8px; border-bottom: 1px solid var(--color-border-2); margin-bottom: 8px;
+  padding: 12px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.6); margin-bottom: 8px;
 }
 .tree-title { font-size: 13px; font-weight: 600; color: var(--color-text-1); }
 
 .group-tree { padding: 4px 0; }
+.group-tree :deep(.arco-tree),
+.group-tree :deep(.arco-tree-node) { background: transparent !important; }
 .group-tree :deep(.arco-tree-node-title) { border-radius: 6px; padding: 2px 6px; }
 .group-tree :deep(.arco-tree-node-selected .arco-tree-node-title) {
   background: var(--color-primary-light-2); color: var(--color-primary-6);
@@ -804,16 +855,46 @@ onMounted(fetchList)
 
 .table-head {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 14px 18px; border-bottom: 1px solid var(--color-border-2);
+  padding: 14px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.6);
 }
 .card-title { font-size: 15px; font-weight: 600; color: var(--color-text-1); }
 
+/* ===== 暴力穿透：表格与树的所有顽固白底清成透明 ===== */
+.subject-table :deep(.arco-table),
+.subject-table :deep(.arco-table-container),
+.subject-table :deep(.arco-table-body),
+.subject-table :deep(.arco-table-tr),
+.subject-table :deep(.arco-table-th),
+.subject-table :deep(.arco-table-td),
+.group-tree :deep(.arco-tree),
+.group-tree :deep(.arco-tree-node) {
+  background-color: transparent !important;
+}
+/* 表头增加一点点底色区分 */
+.subject-table :deep(.arco-table-th) {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+  font-weight: 600;
+  color: var(--color-text-1);
+}
+
+/* 表格透明 + 浅蓝表头 + 浅蓝 hover 微光 */
 .subject-table { flex: 1; }
+.subject-table :deep(.arco-table-container),
+.subject-table :deep(.arco-table),
+.subject-table :deep(.arco-table-tr),
+.subject-table :deep(.arco-table-content) { background: transparent; }
+.subject-table :deep(.arco-table-td-row) { background: transparent; }
+.subject-table :deep(.arco-table-body) { background: transparent; }
+.subject-table :deep(.arco-table-td) {
+  background: transparent !important;
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
 .subject-table :deep(.arco-table-tbody > tr) {
   transition: background-color 0.18s ease;
 }
 .subject-table :deep(.arco-table-tbody > tr:hover > td) {
-  background: var(--color-fill-2);
+  background: rgba(186, 225, 255, 0.35) !important;
+  box-shadow: inset 0 0 0 1px rgba(122, 190, 240, 0.18);
 }
 .subject-table :deep(.arco-table-tbody > tr.row-warn > td) {
   background: rgba(255, 125, 0, 0.06);
@@ -826,6 +907,10 @@ onMounted(fetchList)
 }
 .subject-table :deep(.arco-table-tbody > tr.row-blocked:hover > td) {
   background: rgba(245, 63, 63, 0.10);
+}
+/* 斑马纹静音，避免遮盖玻璃质感 */
+.subject-table :deep(.arco-table-tr-striped .arco-table-td) {
+  background: rgba(240, 248, 255, 0.28) !important;
 }
 
 .idx-num { color: var(--color-text-3); font-family: Menlo, Monaco, Consolas, monospace; font-size: 13px; }
@@ -860,7 +945,20 @@ onMounted(fetchList)
 
 .pagination-wrap {
   display: flex; justify-content: flex-end;
-  padding: 14px 18px; border-top: 1px solid var(--color-border-2);
+  padding: 14px 18px; border-top: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+/* 「新增」主按钮：保留蓝色主色，增加柔和外发光 */
+.toolbar-left :deep(.arco-btn-primary) {
+  box-shadow: 0 6px 18px rgba(22, 93, 255, 0.28);
+}
+
+/* 状态 Tag：半透明背景、去边框、文字保持鲜艳 */
+.toolbar-card :deep(.arco-tag),
+.main-split-card :deep(.arco-tag) {
+  background: rgba(255, 255, 255, 0.5);
+  border: none;
+  backdrop-filter: blur(4px);
 }
 
 .alert-error { margin-bottom: 16px; }

@@ -167,7 +167,7 @@ if (window.matchMedia('(pointer: coarse)').matches) {
   if (hintCopy) hintCopy.textContent = '单指拖动 · 轻触标签查看详情';
 }
 
-const clock = new THREE.Clock();
+const clock = new THREE.Timer();
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 const root = new THREE.Group();
@@ -283,7 +283,7 @@ function init(){
     resizeObserver = new ResizeObserver(resize); resizeObserver.observe(stageRoot);
   }
   trackListener(document, 'visibilitychange', () => {
-    if (!document.hidden) clock.getDelta();
+    if (!document.hidden) clock.update();
   });
 
 }
@@ -503,7 +503,7 @@ function startBrain(){
   // loop must not resize or rebuild anything during the drawer animation.
   if (!running) {
     detailThrottle = false;
-    clock.start();
+    clock.update();
     renderer.render(scene, camera);
     renderer.setAnimationLoop(render);
     running = true;
@@ -515,7 +515,7 @@ function stopBrain(){
   renderer.setAnimationLoop(null);
   running = false;
   detailThrottle = false;
-  clock.stop();
+  clock.reset();
 }
 
 function setDetailMode(active){
@@ -1489,8 +1489,12 @@ function render(){
     if (now - lastDetailFrame < 95) return;
     lastDetailFrame = now;
   }
+  // THREE.Timer needs a per-frame update() so its _delta/_elapsed advance; only then
+  // do getDelta()/getElapsed() return meaningful values (unlike the old Clock, which had
+  // no update and reset on every getDelta call).
+  clock.update();
   const dt = Math.min(clock.getDelta(), detailThrottle ? 0.12 : 0.05);
-  const elapsed = clock.elapsedTime;
+  const elapsed = clock.getElapsed();
 
   if (!PREFERS_REDUCED) {
     look.x += (look.targetX - look.x) * 0.075;

@@ -1,15 +1,15 @@
 import { defineStore } from 'pinia'
 import { watch } from 'vue'
 
-const DARK_ATTR = 'arco-theme'
 const VALID_SIZES = ['small', 'medium', 'large']
 
-function applyDark(isDark) {
-  if (isDark) {
-    document.body.setAttribute(DARK_ATTR, 'dark')
-  } else {
-    document.body.removeAttribute(DARK_ATTR)
-  }
+// The whole app is locked to light mode. Dark mode is intentionally unsupported:
+// there is no toggle, no system-following, and any stale dark token is purged on boot.
+function purgeDark() {
+  document.body.removeAttribute('arco-theme')
+  try {
+    localStorage.removeItem('ad-causalrisk-theme')
+  } catch {}
 }
 
 function applySize(size) {
@@ -20,31 +20,21 @@ function applySize(size) {
   else root.style.fontSize = '14px'
 }
 
-const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-
 export const useThemeStore = defineStore('theme', {
   state: () => ({
-    isDark: false,
     size: 'medium'
   }),
 
   actions: {
-    toggleDark() { this.isDark = !this.isDark },
-    setDark(val) { this.isDark = !!val },
-    setSize(size) { if (VALID_SIZES.includes(size)) this.size = size },
-    initFromSystem() { this.isDark = mediaQuery.matches }
+    setSize(size) { if (VALID_SIZES.includes(size)) this.size = size }
   },
 
   persist: {
     key: 'ad-causalrisk-theme',
-    pick: ['isDark', 'size']
+    pick: ['size']
   }
 })
 
-watch(
-  () => { try { return useThemeStore().isDark } catch { return null } },
-  (val) => { if (val !== null) applyDark(val) }
-)
 watch(
   () => { try { return useThemeStore().size } catch { return null } },
   (val) => { if (val) applySize(val) }
@@ -52,8 +42,7 @@ watch(
 
 if (document.readyState !== 'loading') {
   try {
-    const s = useThemeStore()
-    applyDark(s.isDark)
-    applySize(s.size)
+    purgeDark()
+    applySize(useThemeStore().size)
   } catch {}
 }
