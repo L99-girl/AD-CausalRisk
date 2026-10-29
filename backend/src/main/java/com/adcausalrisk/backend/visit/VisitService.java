@@ -62,15 +62,16 @@ public class VisitService {
     /**
      * Creates one visit for one subject.
      *
-     * <p>{@code ADMIN} and {@code RESEARCHER} may create visits on any subject; a {@code DOCTOR}
-     * may create one only on a subject they hold {@code VIEW} or {@code MANAGE} for. This
-     * reuses {@link SubjectAccessPolicy#canOperate}, so it never lets a doctor behave like a
-     * researcher who can invent brand-new subject rows.
+     * <p>{@code ADMIN} and {@code RESEARCHER} may create visits; everyone else receives
+     * {@code ACCESS_DENIED} (403). This reuses {@link SubjectAccessPolicy#canCreate}, the same
+     * rule that guards subject creation.
      *
-     * <p>No further per-subject check is needed on top of {@code canOperate} today: a doctor is
-     * only admitted when the permission lookup above returns VIEW or MANAGE for this subject, and
-     * those same lookups decide {@code canView}. If {@code canOperate} is ever narrowed further,
-     * a mirroring {@code canView} gate must be added at this point.
+     * <p>No further per-subject check is needed here <i>today</i>: {@code canCreate} currently
+     * means "role is ADMIN or RESEARCHER", and both of those roles are also
+     * {@code FULL_VIEW_ROLES} in {@link SubjectAccessPolicy}, so anyone allowed to create can
+     * already see every subject. That coupling is intentional but implicit - if
+     * {@code canCreate} is ever narrowed to a per-subject {@code MANAGE} rule, a
+     * {@code canView}/grant check must be added at this point.
      *
      * <p>A missing subject is reported as 400 {@code VALIDATION_ERROR} rather than 404,
      * matching the convention the subject module established (the frozen contract declares no
@@ -80,9 +81,7 @@ public class VisitService {
     @Transactional
     public VisitResultView createVisit(Long subjectId, VisitCreateRequest request,
                                        AppUserPrincipal principal) {
-        // Permission first: ADMIN/RESEARCHER may record a visit on any subject; a DOCTOR needs
-        // VIEW or MANAGE on this specific subject. PATIENT is always refused.
-        if (!accessPolicy.canOperate(principal, subjectId)) {
+        if (!accessPolicy.canCreate(principal)) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "无权创建访视");
         }
 

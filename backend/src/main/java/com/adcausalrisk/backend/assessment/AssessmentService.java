@@ -110,7 +110,7 @@ public class AssessmentService {
     public Outcome create(
             Long subjectId, String modelVersion, int predictionWindowMonths,
             String idempotencyKey, AppUserPrincipal principal) {
-        if (!accessPolicy.canOperate(principal, subjectId)) {
+        if (!accessPolicy.canCreate(principal)) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "无权发起评估");
         }
         // The header is opaque to HTTP, but " abc" and "abc" must not become two idempotency
