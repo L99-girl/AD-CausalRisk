@@ -16,6 +16,22 @@ export function respondToFollowUp(id, appointmentRevision, action, note) {
   return request.post(`/patients/me/follow-up/${id}/response`, { appointmentRevision, action, note }, { silent: true })
 }
 
+export function cancelFollowUp(id, appointmentRevision) {
+  return request.post(`/patients/me/follow-up/${id}/cancel`, { appointmentRevision }, { silent: true })
+}
+
+export function getMyConsent() {
+  return request.get('/patients/me/consent')
+}
+
+export function saveMyConsent(researchUse, followUpContact) {
+  return request.put('/patients/me/consent', { researchUse, followUpContact }, { silent: true })
+}
+
+export function getMyTimeline() {
+  return request.get('/patients/me/timeline')
+}
+
 export function getMyMemos() {
   return request.get('/patients/me/memos')
 }
