@@ -8,6 +8,7 @@ import com.adcausalrisk.backend.followup.entity.FollowUpPlan;
 import com.adcausalrisk.backend.security.AppUserPrincipal;
 import com.adcausalrisk.backend.subject.SubjectAccessPolicy;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,10 @@ import java.time.format.DateTimeFormatter;
  *
  * <p>取消必须带 {@code appointmentRevision}：患者看到的是某一版安排，如果医院在他提交之前
  * 又改了一次时间，就拒绝这次取消，避免取消掉一个他从没见过的新安排。
+ *
+ * <p>取消会覆盖同一版本的回执：患者先确认、后取消时，医生端只应看到「已取消」，
+ * 而不是「已取消」旁边还挂着一句「患者已确认」。回执表按 (复诊, 版本) 唯一，
+ * 覆盖写正是让同一版安排只保留最新一次表态。
  */
 @Service
 public class PatientFollowUpSelfService {
@@ -33,15 +38,18 @@ public class PatientFollowUpSelfService {
     private final PatientSummaryService summary;
     private final SubjectAccessPolicy accessPolicy;
     private final AuditService audit;
+    private final JdbcTemplate jdbc;
 
     public PatientFollowUpSelfService(FollowUpPlanRepository followUpRepository,
                                       PatientSummaryService summary,
                                       SubjectAccessPolicy accessPolicy,
-                                      AuditService audit) {
+                                      AuditService audit,
+                                      JdbcTemplate jdbc) {
         this.followUpRepository = followUpRepository;
         this.summary = summary;
         this.accessPolicy = accessPolicy;
         this.audit = audit;
+        this.jdbc = jdbc;
     }
 
     /**
@@ -74,11 +82,31 @@ public class PatientFollowUpSelfService {
         }
 
         String when = WHEN.format(plan.getScheduledAt());
+        replaceResponseWithCancellation(followUpId, appointmentRevision, principal.userId());
         plan.changeStatus(FollowUpPlan.Status.CANCELLED);
         followUpRepository.saveAndFlush(plan);
         audit.recordQuietly(
                 principal.userId(),
                 "PATIENT_FOLLOW_UP_CANCEL",
                 "患者取消复诊 " + when + " subjectId=" + subjectId);
+    }
+
+    /**
+     * 把同一版本的回执覆盖成「已取消」。先改后插：患者确认过就覆盖那一行，从未表态则补一行，
+     * 这样医生端无论哪种情况都不会读到「已取消 + 患者已确认」这种自相矛盾的组合。
+     * 改期说明一并清空——安排已经取消，再留着「那天上午要上班」会被误读成仍在等医院处理。
+     */
+    private void replaceResponseWithCancellation(long followUpId, long appointmentRevision, long patientId) {
+        int updated = jdbc.update("""
+                UPDATE follow_up_response SET response_status='CANCELLED',response_note=NULL,updated_at=CURRENT_TIMESTAMP
+                WHERE follow_up_id=? AND appointment_revision=? AND patient_id=?
+                """, followUpId, appointmentRevision, patientId);
+        if (updated > 0) {
+            return;
+        }
+        jdbc.update("""
+                INSERT INTO follow_up_response(follow_up_id,appointment_revision,patient_id,response_status,response_note,updated_at)
+                VALUES(?,?,?,'CANCELLED',NULL,CURRENT_TIMESTAMP)
+                """, followUpId, appointmentRevision, patientId);
     }
 }

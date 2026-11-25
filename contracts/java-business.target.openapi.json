@@ -14134,6 +14134,7 @@
               "CONFIRMED",
               "RESCHEDULE_REQUESTED",
               "RESCHEDULE_DECLINED",
+              "CANCELLED",
               null
             ]
           },
@@ -16082,6 +16083,7 @@
               "CONFIRMED",
               "RESCHEDULE_REQUESTED",
               "RESCHEDULE_DECLINED",
+              "CANCELLED",
               null
             ]
           },
@@ -16892,6 +16894,7 @@
               "CONFIRMED",
               "RESCHEDULE_REQUESTED",
               "RESCHEDULE_DECLINED",
+              "CANCELLED",
               null
             ]
           },

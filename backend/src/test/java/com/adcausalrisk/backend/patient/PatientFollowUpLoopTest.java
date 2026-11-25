@@ -180,6 +180,71 @@ class PatientFollowUpLoopTest {
     }
 
     /**
+     * 患者先确认、后取消：同一版本的回执必须被「已取消」覆盖，医生端不能同时读到
+     * 「已取消」和「患者已确认」两个互相矛盾的说法。
+     */
+    @Test
+    void patientCancellationOverwritesTheConfirmationOfTheSameRevision() throws Exception {
+        long followUpId = createFollowUp("认知复查", "门诊三楼", null);
+
+        MockHttpSession patient = login("patient");
+        patientRespond(patient, followUpId, 0, "CONFIRM", null);
+        assertThat(doctorFollowUp(login("doctor"), followUpId).get("responseStatus").asText())
+                .isEqualTo("CONFIRMED");
+
+        patientCancel(patient, followUpId, 0);
+
+        JsonNode doctorRow = doctorFollowUp(login("doctor"), followUpId);
+        assertThat(doctorRow.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(doctorRow.get("responseStatus").asText())
+                .as("取消必须覆盖同一版本的确认，而不是留下两条并存的表态")
+                .isEqualTo("CANCELLED");
+        assertThat(doctorRow.get("responseNote").isNull()).isTrue();
+
+        JsonNode patientRow = patientAppointments(patient).get(0);
+        assertThat(patientRow.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(patientRow.get("responseStatus").asText()).isEqualTo("CANCELLED");
+        assertThat(patientRow.get("canRespond").asBoolean()).isFalse();
+
+        assertThat(responseRowCount(followUpId)).as("同一版本只保留一行回执").isEqualTo(1);
+        assertThat(dbResponseStatus(followUpId, 0)).isEqualTo("CANCELLED");
+    }
+
+    /** 患者没确认就直接取消，医生端也应当看到「患者已取消」，而不是一直停在「等患者确认」。 */
+    @Test
+    void cancellationWithoutAnyEarlierResponseStillReadsAsCancelled() throws Exception {
+        long followUpId = createFollowUp("认知复查", "门诊三楼", null);
+
+        MockHttpSession patient = login("patient");
+        patientCancel(patient, followUpId, 0);
+
+        JsonNode doctorRow = doctorFollowUp(login("doctor"), followUpId);
+        assertThat(doctorRow.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(doctorRow.get("responseStatus").asText()).isEqualTo("CANCELLED");
+        assertThat(responseRowCount(followUpId)).isEqualTo(1);
+    }
+
+    /**
+     * 患者申请改期后取消：改期申请同样被取消覆盖，医生端不会看到一个已经作废的待处理申请。
+     */
+    @Test
+    void cancellationAlsoClearsAPendingRescheduleRequest() throws Exception {
+        long followUpId = createFollowUp("认知复查", "门诊三楼", null);
+
+        MockHttpSession patient = login("patient");
+        patientRespond(patient, followUpId, 0, "REQUEST_RESCHEDULE", "那天要上班");
+        patientCancel(patient, followUpId, 0);
+
+        JsonNode doctorRow = doctorFollowUp(login("doctor"), followUpId);
+        assertThat(doctorRow.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(doctorRow.get("responseStatus").asText()).isEqualTo("CANCELLED");
+        assertThat(doctorRow.get("responseNote").isNull())
+                .as("取消后不应再留着已经作废的改期说明")
+                .isTrue();
+        assertThat(dbResponseStatus(followUpId, 0)).isEqualTo("CANCELLED");
+    }
+
+    /**
      * 对象级越权：患者只能取消自己档案下的安排。别的档案同样排了复诊，患者拿着它的 id
      * 直接调接口必须被拒绝，并且数据库不能变化。
      */
@@ -294,6 +359,17 @@ class PatientFollowUpLoopTest {
                 .andExpect(status().isOk());
     }
 
+    private void patientCancel(MockHttpSession session, long followUpId, long revision)
+            throws Exception {
+        mockMvc.perform(
+                        post("/api/patients/me/follow-up/{id}/cancel", followUpId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(
+                                        Map.of("appointmentRevision", revision)))
+                                .session(session))
+                .andExpect(status().isOk());
+    }
+
     private JsonNode patientAppointments(MockHttpSession session) throws Exception {
         return bodyOf(mockMvc.perform(
                         get("/api/patients/me/follow-up").session(session))
@@ -317,6 +393,22 @@ class PatientFollowUpLoopTest {
     private String dbStatus(long followUpId) {
         return jdbc.queryForObject(
                 "SELECT status FROM follow_up_plan WHERE id = ?", String.class, followUpId);
+    }
+
+    private String dbResponseStatus(long followUpId, long revision) {
+        return jdbc.queryForObject(
+                "SELECT response_status FROM follow_up_response WHERE follow_up_id = ?"
+                        + " AND appointment_revision = ?",
+                String.class,
+                followUpId,
+                revision);
+    }
+
+    private int responseRowCount(long followUpId) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM follow_up_response WHERE follow_up_id = ?",
+                Integer.class,
+                followUpId);
     }
 
     private MockHttpSession login(String username) throws Exception {
