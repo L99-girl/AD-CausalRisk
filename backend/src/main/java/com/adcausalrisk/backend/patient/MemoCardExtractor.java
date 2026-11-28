@@ -56,7 +56,14 @@ class MemoCardExtractor {
      */
     private static final int MAX_CARD_TEXT = 500;
 
-    private static final int MAX_SOURCE = 200;
+    /**
+     * 卡片出处（{@code sourceRef}）上限，与卡片文字上限保持一致。
+     *
+     * <p>整句兜底时出处就是整句原文，如果它比卡片文字更早截断，患者核对时就看不到句尾——
+     * 而句尾常常正是限制条件。整句本身已经受 {@link #MAX_CARD_TEXT} 约束，这里只要不更小，
+     * 出处就永远不会被截断。
+     */
+    private static final int MAX_SOURCE = 500;
 
     /** 语义片段最长上限：再长就不像一个字段值，多半是模型把整句圈了进来。 */
     private static final int MAX_SPAN = 40;
