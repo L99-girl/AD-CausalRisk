@@ -238,6 +238,26 @@ class MemoCardExtractorTest {
                 .hasMessageContaining("重新预览");
     }
 
+    /**
+     * 出处（{@code sourceRef}）不能比卡片文字更早截断：整句兜底时出处就是整句原文，
+     * 出处少了句尾，患者核对时同样看不到「不要独自离开」这类限制条件。
+     */
+    @Test
+    void aLongConditionalSentenceKeepsItsWholeSourceReference() {
+        String memo = "如果" + "头晕的时候先坐下休息并且把当天吃过的药都记下来".repeat(9) + "更不要独自离开";
+        assertThat(memo.length()).as("复现条件：长于旧出处的 200 字上限").isGreaterThan(200);
+
+        MemoCardExtractor extractor = new MemoCardExtractor(offlineSemantic());
+
+        List<MemoCardExtractor.Draft> drafts = extractor.extract(memo);
+
+        assertThat(drafts).hasSize(1);
+        assertThat(drafts.get(0).backText()).isEqualTo(memo);
+        assertThat(drafts.get(0).sourceRef())
+                .as("出处必须与原文一致，不能在 200 字处截断")
+                .isEqualTo(memo);
+    }
+
     @Test
     void timeKeepsTheMinutesInsteadOfTruncatingAtTheHour() {
         MemoCardExtractor extractor = new MemoCardExtractor(offlineSemantic());

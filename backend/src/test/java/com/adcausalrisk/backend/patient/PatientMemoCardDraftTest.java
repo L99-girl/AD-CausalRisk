@@ -477,6 +477,34 @@ class PatientMemoCardDraftTest {
                 .isNotEmpty();
     }
 
+    /**
+     * 出处不能比卡片文字更早被截断：长句预览的 sourceRef 是整句原文，冻结契约必须容得下它。
+     *
+     * <p>契约里 card-drafts 的 sourceRef 曾是 200 字，而卡片文字是 500 字，于是 200 字以上的
+     * 长句出处被截掉句尾，患者核对时看不到限制条件。当时没有用例拿长句跑契约校验，
+     * 所以响应字段被截断也不会有人发现。
+     */
+    @Test
+    void aLongSourceReferenceStillSatisfiesTheFrozenContract() throws Exception {
+        MockHttpSession session = login("patient");
+        String memo = "如果" + "头晕的时候先坐下休息并且把当天吃过的药都记下来".repeat(9) + "更不要独自离开";
+        long memoId = createMemo(session, memo);
+
+        JsonNode body =
+                bodyOf(
+                        mockMvc.perform(post(MEMOS + "/" + memoId + "/card-drafts").session(session))
+                                .andExpect(status().isOk())
+                                .andReturn());
+
+        JsonNode card = body.path("data").path("drafts").get(0);
+        assertThat(card.path("sourceRef").asText())
+                .as("出处必须完整保留整句，不能在 200 字处截断")
+                .isEqualTo(memo);
+        assertThat(ContractSchemas.validateResponse(body, CARD_DRAFTS, "post", 200))
+                .as("长句出处必须仍在冻结契约的长度范围内：%s", body)
+                .isEmpty();
+    }
+
     private static Map<String, Object> draft(String front, String back, String source) {
         return Map.of("frontText", front, "backText", back, "sourceRef", source);
     }
